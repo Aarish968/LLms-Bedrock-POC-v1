@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lineage Analysis</title>
+    <meta name="description" content="Database Lineage Analysis System" />
+    <script>
+      // Polyfill for global object (required for AWS Amplify)
+      if (typeof global === 'undefined') {
+        var global = globalThis;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
