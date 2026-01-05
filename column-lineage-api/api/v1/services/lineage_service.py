@@ -50,26 +50,24 @@ class LineageService(LoggerMixin):
             
             # Get the actual list of views to process for progress tracking
             if request.view_names:
+                self.logger.info("Specific views provided")
                 views_to_process = request.view_names
                 total_views = len(views_to_process)
+                
+                # Update job with actual total views count
+                self.job_manager.update_job_progress(
+                    job_id,
+                    total_views=total_views,
+                    processed_views=0
+                )
             else:
-                # Skip the expensive get_available_views call that causes hanging
-                # Use a reasonable estimate and let the analysis discover views dynamically
+                # For dynamic discovery, we'll update the count after processing
                 self.logger.info("No specific views provided, using dynamic discovery")
-                total_views = 50  # Conservative estimate
                 views_to_process = None
-            
-            # Update job with actual total views count
-            self.job_manager.update_job_progress(
-                job_id,
-                total_views=total_views,
-                processed_views=0
-            )
+                # Don't set total_views yet - we'll update it after processing
             
             # Use standalone analysis module
-            self.logger.info("Starting standalone analysis", 
-                           view_count=total_views,
-                           environment=sf_env)
+            self.logger.info("Starting standalone analysis", environment=sf_env)
             
             # Process views using standalone module
             csv_rows = process_all_views(
@@ -87,12 +85,22 @@ class LineageService(LoggerMixin):
                 processed_view_names.add(result.view_name)
             
             successful_views = len(processed_view_names)
+            
+            # Now we know the actual total views processed
+            if not request.view_names:
+                # For dynamic discovery, set the actual total views count
+                total_views = successful_views
+                self.logger.info(f"Dynamic discovery found {total_views} views")
+            else:
+                total_views = len(request.view_names)
+            
             failed_views = max(0, total_views - successful_views)
             
-            # Update final progress
+            # Update final progress with correct counts
             self.job_manager.update_job_progress(
                 job_id,
-                processed_views=total_views,
+                total_views=total_views,
+                processed_views=total_views,  # All discovered views were processed
                 successful_views=successful_views,
                 failed_views=failed_views
             )

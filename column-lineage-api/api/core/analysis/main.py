@@ -32,7 +32,6 @@ class _EngineWrappedConnection:
             AND TABLE_NAME NOT LIKE 'CANVAS_%'
             AND (TABLE_SCHEMA = 'CPS_DSCI_API' OR TABLE_SCHEMA = 'CPS_DSCI_BR')
             ORDER BY TABLE_NAME 
-            LIMIT 10
             """
             
             with self.engine.connect() as connection:
@@ -173,7 +172,7 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
         if not target_views:
             print("No views found or query failed, returning empty results")
             return []
-        print(f"Processing {len(target_views)} views from Snowflake...")
+        print(f"Discovered and processing {len(target_views)} views from Snowflake...")
     
     # Create parser
     parser = CompleteIntegratedParser()
