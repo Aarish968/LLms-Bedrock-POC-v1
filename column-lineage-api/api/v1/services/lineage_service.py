@@ -70,7 +70,7 @@ class LineageService(LoggerMixin):
             self.logger.info("Starting standalone analysis", environment=sf_env)
             
             # Process views using standalone module
-            csv_rows = process_all_views(
+            csv_rows, processing_stats = process_all_views(
                 sf_env=sf_env,
                 view_names=request.view_names,
                 engine=engine
@@ -79,28 +79,24 @@ class LineageService(LoggerMixin):
             # Convert CSV rows to API result format
             results = self._convert_csv_rows_to_api_results(csv_rows)
             
-            # Calculate successful and failed views from results
-            processed_view_names = set()
-            for result in results:
-                processed_view_names.add(result.view_name)
-            
-            successful_views = len(processed_view_names)
-            
-            # Now we know the actual total views processed
+            # Use processing stats for accurate counts
             if not request.view_names:
-                # For dynamic discovery, set the actual total views count
-                total_views = successful_views
-                self.logger.info(f"Dynamic discovery found {total_views} views")
+                # For dynamic discovery, use the actual discovered count
+                total_views = processing_stats["total_discovered"]
+                successful_views = processing_stats["successfully_processed"]
+                failed_views = processing_stats["failed"]
+                self.logger.info(f"Dynamic discovery: {total_views} total, {successful_views} successful, {failed_views} failed")
             else:
+                # For specific views, calculate from processing stats
                 total_views = len(request.view_names)
-            
-            failed_views = max(0, total_views - successful_views)
+                successful_views = processing_stats["successfully_processed"]
+                failed_views = processing_stats["failed"]
             
             # Update final progress with correct counts
             self.job_manager.update_job_progress(
                 job_id,
                 total_views=total_views,
-                processed_views=total_views,  # All discovered views were processed
+                processed_views=total_views,  # All discovered views were attempted
                 successful_views=successful_views,
                 failed_views=failed_views
             )
@@ -134,8 +130,11 @@ class LineageService(LoggerMixin):
                 "Lineage analysis completed",
                 job_id=str(job_id),
                 total_results=len(results),
+                total_views=total_views,
                 successful_views=successful_views,
-                failed_views=failed_views
+                failed_views=failed_views,
+                views_with_columns=processing_stats.get("views_with_columns", 0),
+                views_with_zero_columns=processing_stats.get("views_with_zero_columns", 0)
             )
             
             return results

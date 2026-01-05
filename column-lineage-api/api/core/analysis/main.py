@@ -32,6 +32,7 @@ class _EngineWrappedConnection:
             AND TABLE_NAME NOT LIKE 'CANVAS_%'
             AND (TABLE_SCHEMA = 'CPS_DSCI_API' OR TABLE_SCHEMA = 'CPS_DSCI_BR')
             ORDER BY TABLE_NAME 
+            LIMIT 5
             """
             
             with self.engine.connect() as connection:
@@ -141,7 +142,7 @@ class _EngineWrappedConnection:
             return None
 
 
-def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, engine=None) -> List[List[str]]:
+def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, engine=None) -> Tuple[List[List[str]], dict]:
     """
     Process all views from Snowflake and generate comprehensive analysis
     
@@ -151,7 +152,7 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
         engine: Optional database engine to use (will create SnowflakeConnection with injected engine)
     
     Returns:
-        List of CSV rows with analysis results
+        Tuple of (CSV rows with analysis results, processing stats)
     """
     
     # Create database connection
@@ -171,7 +172,7 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
         target_views = db_connection.get_view_names_from_snowflake()
         if not target_views:
             print("No views found or query failed, returning empty results")
-            return []
+            return [], {"total_discovered": 0, "successfully_processed": 0, "failed": 0}
         print(f"Discovered and processing {len(target_views)} views from Snowflake...")
     
     # Create parser
@@ -179,6 +180,15 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
     
     # Results list for CSV
     all_csv_rows = []
+    
+    # Processing statistics
+    processing_stats = {
+        "total_discovered": len(target_views),
+        "successfully_processed": 0,
+        "failed": 0,
+        "views_with_columns": 0,
+        "views_with_zero_columns": 0
+    }
     
     for i, view_name in enumerate(target_views, 1):
         print(f"Processing {i}/{len(target_views)}: {view_name}")
@@ -189,6 +199,7 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
             
             if not ddl_text:
                 print(f"  Could not retrieve DDL for {view_name}")
+                processing_stats["failed"] += 1
                 # Add error row
                 all_csv_rows.append([
                     view_name.upper(),
@@ -207,6 +218,7 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
             
             if 'error' in analysis:
                 print(f"  Analysis error for {view_name}: {analysis['error']}")
+                processing_stats["failed"] += 1
                 # Add error row
                 all_csv_rows.append([
                     view_name.upper(),
@@ -223,16 +235,27 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
             
             # Parse CSV output and add to results
             csv_lines = csv_output.strip().split('\n')[1:]  # Skip header
+            column_count = 0
             for line in csv_lines:
                 if line.strip():
                     parts = [part.strip() for part in line.split(',')]
                     if len(parts) >= 6:
                         all_csv_rows.append(parts)
+                        column_count += 1
             
-            print(f"  Successfully processed {view_name} - {len(csv_lines)} columns")
+            # Count as successfully processed regardless of column count
+            processing_stats["successfully_processed"] += 1
+            
+            if column_count > 0:
+                processing_stats["views_with_columns"] += 1
+                print(f"  Successfully processed {view_name} - {column_count} columns")
+            else:
+                processing_stats["views_with_zero_columns"] += 1
+                print(f"  Successfully processed {view_name} - 0 columns (empty view)")
             
         except Exception as e:
             print(f"  Error processing {view_name}: {e}")
+            processing_stats["failed"] += 1
             # Add error row
             all_csv_rows.append([
                 view_name.upper(),
@@ -243,7 +266,14 @@ def process_all_views(sf_env='prod', view_names: Optional[List[str]] = None, eng
                 'ERROR'
             ])
     
-    return all_csv_rows
+    print(f"\n=== PROCESSING SUMMARY ===")
+    print(f"Total views discovered: {processing_stats['total_discovered']}")
+    print(f"Successfully processed: {processing_stats['successfully_processed']}")
+    print(f"Failed: {processing_stats['failed']}")
+    print(f"Views with columns: {processing_stats['views_with_columns']}")
+    print(f"Views with zero columns: {processing_stats['views_with_zero_columns']}")
+    
+    return all_csv_rows, processing_stats
 
 
 def save_results_to_csv(results: List[List[str]], filename: str = 'column_lineage_analysis.csv', 
@@ -342,7 +372,7 @@ def main():
         print(f"Usage: python main.py")
         
         # Process all views
-        results = process_all_views(sf_env)
+        results, stats = process_all_views(sf_env)
         
         # Save to CSV
         df = save_results_to_csv(results)
