@@ -64,6 +64,11 @@ class Settings:
     LOG_FORMAT: str = os.getenv("LOG_FORMAT", "json")
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
     
+    # AWS CodeCommit settings
+    AWS_CODECOMMIT_USERNAME: str = os.getenv("AWS_CODECOMMIT_USERNAME", "")
+    AWS_CODECOMMIT_PASSWORD: str = os.getenv("AWS_CODECOMMIT_PASSWORD", "")
+    AWS_CODECOMMIT_REGION: str = os.getenv("AWS_CODECOMMIT_REGION", "us-east-1")
+    
     def __init__(self):
         # Ensure results directory exists if auto-save is enabled
         if self.AUTO_SAVE_RESULTS:
