@@ -35,6 +35,12 @@ class RepositoryAnalysisService:
         # Directory for analysis results
         self.analysis_results_dir = Path("Repo_Analyze")
         self.analysis_results_dir.mkdir(exist_ok=True)
+        
+        # Default repository names from environment variables
+        self.default_frontend_repo = os.getenv("DEFAULT_FRONTEND_REPO", "guided-workflow")
+        self.default_backend_repo = os.getenv("DEFAULT_BACKEND_REPO", "guided-workflow-backend")
+        
+        logger.info(f"Default repositories configured - Frontend: {self.default_frontend_repo}, Backend: {self.default_backend_repo}")
     
     def get_job(self, job_id: UUID) -> Optional[RepositoryAnalysisJob]:
         """Get job by ID."""
@@ -289,14 +295,24 @@ class RepositoryAnalysisService:
         user_id: str,
     ) -> None:
         """Run repository analysis in background."""
-        logger.info("Starting repository analysis", job_id=str(job_id), user_id=user_id)
+        # Use default repository names from environment variables
+        frontend_repo_name = self.default_frontend_repo
+        backend_repo_name = self.default_backend_repo
+        
+        logger.info(
+            "Starting repository analysis", 
+            job_id=str(job_id), 
+            user_id=user_id,
+            frontend_repo_name=frontend_repo_name,
+            backend_repo_name=backend_repo_name
+        )
         
         try:
             # Step 1: Clone repositories
             frontend_path, backend_path = await self._clone_repositories(
                 job_id=job_id,
-                frontend_repo_name=request.frontend_repo_name,
-                backend_repo_name=request.backend_repo_name,
+                frontend_repo_name=frontend_repo_name,
+                backend_repo_name=backend_repo_name,
             )
             
             # Step 3: Run the analysis using action_to_table.py

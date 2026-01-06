@@ -1,96 +1,147 @@
-# Repository Analysis API - Updated Structure
+# Repository Analysis API - Ultra Simple Configuration
 
-## ✅ Recent Updates
+## 🎯 Ultra Minimal API Payload
 
-### Removed Fields from API Payload:
-- **`credentials_file`**: Removed since we now use environment variables (`AWS_CODECOMMIT_USERNAME`, `AWS_CODECOMMIT_PASSWORD`, `AWS_CODECOMMIT_REGION`)
-- **`output_filename`**: Removed since filenames are now auto-generated with timestamps
-
-### New Structure:
-- **Auto-generated filenames**: `repo_analysis_YYYYMMDD_HHMMSS.csv`
-- **Dedicated directory**: All CSV files are stored in `Repo_Analyze/` directory
-- **Simplified API payload**: Only requires repository names and async processing flag
-
-## 🚀 Updated API Usage
-
-### New API Payload Format:
+### New Ultra Simple Payload:
 ```json
 {
-    "frontend_repo_name": "guided-workflow",
-    "backend_repo_name": "guided-workflow-backend",
     "async_processing": true
 }
 ```
+
+**That's it! Just one field!** 🎉
+
+## 🔧 Environment Variable Configuration
+
+Repository names are now configured via environment variables:
+
+```bash
+# .env file
+DEFAULT_FRONTEND_REPO=guided-workflow
+DEFAULT_BACKEND_REPO=guided-workflow-backend
+
+# AWS CodeCommit (existing)
+AWS_CODECOMMIT_USERNAME=your_username
+AWS_CODECOMMIT_PASSWORD=your_password
+AWS_CODECOMMIT_REGION=us-east-1
+```
+
+## 🚀 Updated API Usage
 
 ### Example API Call:
 ```bash
 curl -X POST "http://localhost:8000/api/v1/repo-analysis/analyze" \
   -H "Content-Type: application/json" \
-  -d '{
-    "frontend_repo_name": "guided-workflow",
-    "backend_repo_name": "guided-workflow-backend",
-    "async_processing": true
-  }'
+  -d '{"async_processing": true}'
 ```
 
-## 📁 File Organization
+### Python Example:
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/api/v1/repo-analysis/analyze",
+    json={"async_processing": True}
+)
+```
+
+## 📁 File Organization (Unchanged)
 
 ```
 column-lineage-api/
 ├── Cloned_repo/                    # Repository clones
 │   ├── Frontend/
-│   │   └── guided-workflow/
+│   │   └── guided-workflow/        # From DEFAULT_FRONTEND_REPO
 │   └── Backend/
-│       └── guided-workflow-backend/
+│       └── guided-workflow-backend/ # From DEFAULT_BACKEND_REPO
 └── Repo_Analyze/                   # Analysis results
     ├── repo_analysis_20260106_182634.csv
-    ├── repo_analysis_20260106_183045.csv
     └── ...
+```
+
+## ⚙️ Configuration Options
+
+### Environment Variables:
+- **`DEFAULT_FRONTEND_REPO`**: Frontend repository name (default: "guided-workflow")
+- **`DEFAULT_BACKEND_REPO`**: Backend repository name (default: "guided-workflow-backend")
+- **`AWS_CODECOMMIT_USERNAME`**: CodeCommit username
+- **`AWS_CODECOMMIT_PASSWORD`**: CodeCommit password
+- **`AWS_CODECOMMIT_REGION`**: AWS region (default: "us-east-1")
+
+### Different Environments:
+```bash
+# Development
+DEFAULT_FRONTEND_REPO=dev-frontend
+DEFAULT_BACKEND_REPO=dev-backend
+
+# Staging
+DEFAULT_FRONTEND_REPO=staging-ui
+DEFAULT_BACKEND_REPO=staging-api
+
+# Production
+DEFAULT_FRONTEND_REPO=prod-frontend
+DEFAULT_BACKEND_REPO=prod-backend
 ```
 
 ## 🔍 How It Works
 
-1. **API Call**: Submit analysis request with simplified payload
-2. **Auto-naming**: System generates unique filename with timestamp
-3. **Repository Cloning**: Clones/updates repositories as before
-4. **Analysis**: Runs main.py script to generate comprehensive CSV
-5. **File Management**: Moves output to `Repo_Analyze/` directory with `.csv` extension
+1. **API Call**: Submit ultra-simple payload with just `async_processing`
+2. **Environment Lookup**: Service reads repository names from environment variables
+3. **Repository Cloning**: Clones/updates the configured repositories
+4. **Analysis**: Runs comprehensive analysis script
+5. **File Management**: Saves results to `Repo_Analyze/` with timestamp
 6. **Response**: Returns job status with full path to generated file
 
-## 📊 Expected Results
+## 🧪 Testing
 
-When the API is called, you should see:
-
-1. **Repository Cloning**: Both frontend and backend repos are cloned/updated
-2. **Analysis Execution**: The main.py script runs successfully  
-3. **File Creation**: Output file created in `Repo_Analyze/` directory
-4. **Auto-naming**: File named as `repo_analysis_YYYYMMDD_HHMMSS.csv`
-5. **Success Response**: Job status shows COMPLETED with full file path
-
-## 🎯 Testing
-
-### Option 1: Use Test Script
+### Option 1: Use Updated Test Script
 ```bash
 python test_api_call.py
 ```
 
-### Option 2: Manual Structure Test
+### Option 2: Test Environment Configuration
+```bash
+python test_env_config.py
+```
+
+### Option 3: Manual Structure Test
 ```bash
 python manual_test.py
 ```
 
-### Option 3: Direct API Server
-```bash
-python run.py
-# Then make API calls to http://localhost:8000/api/v1/repo-analysis/analyze
-```
-
 ## ✨ Benefits
 
-- **Cleaner API**: Simplified payload without unnecessary fields
-- **Better Organization**: Dedicated directory for analysis results
-- **No Conflicts**: Timestamp-based naming prevents file overwrites
-- **Environment-based Auth**: Secure credential management via environment variables
-- **Automatic Management**: No need to specify output filenames manually
+- **🎯 Ultra Simple**: Only 1 field in API payload
+- **🔧 Configurable**: Easy to change repos via environment variables
+- **🚀 Environment-Friendly**: Perfect for dev/staging/prod setups
+- **🔒 Secure**: No hardcoded repository names in code
+- **📦 Container-Ready**: Ideal for Docker/Kubernetes deployments
+- **⚡ Fast**: Minimal payload processing overhead
 
-The repository analysis system is now more streamlined and production-ready!
+## 🎉 Migration Guide
+
+### Before:
+```json
+{
+    "frontend_repo_name": "guided-workflow",
+    "backend_repo_name": "guided-workflow-backend",
+    "output_filename": "my-analysis.csv",
+    "credentials_file": "credentials.txt",
+    "async_processing": true
+}
+```
+
+### After:
+```json
+{
+    "async_processing": true
+}
+```
+
+**Environment setup:**
+```bash
+DEFAULT_FRONTEND_REPO=guided-workflow
+DEFAULT_BACKEND_REPO=guided-workflow-backend
+```
+
+The repository analysis system is now ultra-streamlined and production-ready! 🚀

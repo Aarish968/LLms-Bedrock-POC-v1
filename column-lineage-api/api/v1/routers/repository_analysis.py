@@ -34,8 +34,8 @@ async def start_repository_analysis(
     logger.info(
         "Starting repository analysis request",
         user_id=current_user.id,
-        frontend_repo_name=request.frontend_repo_name,
-        backend_repo_name=request.backend_repo_name,
+        frontend_repo_name=analysis_service.default_frontend_repo,
+        backend_repo_name=analysis_service.default_backend_repo,
     )
     
     try:
@@ -46,8 +46,8 @@ async def start_repository_analysis(
             status=AnalysisStatus.PENDING,
             message="Analysis queued for processing",
             started_at=datetime.now(),
-            frontend_repo_name=request.frontend_repo_name,
-            backend_repo_name=request.backend_repo_name,
+            frontend_repo_name=analysis_service.default_frontend_repo,
+            backend_repo_name=analysis_service.default_backend_repo,
         )
         
         # Store job
@@ -211,8 +211,8 @@ async def start_repository_analysis_public(
     """Start repository analysis (public endpoint for testing)."""
     logger.info(
         "Starting repository analysis request (public)",
-        frontend_repo_name=request.frontend_repo_name,
-        backend_repo_name=request.backend_repo_name,
+        frontend_repo_name=analysis_service.default_frontend_repo,
+        backend_repo_name=analysis_service.default_backend_repo,
     )
     
     try:
@@ -223,8 +223,8 @@ async def start_repository_analysis_public(
             status=AnalysisStatus.PENDING,
             message="Analysis queued for processing",
             started_at=datetime.now(),
-            frontend_repo_name=request.frontend_repo_name,
-            backend_repo_name=request.backend_repo_name,
+            frontend_repo_name=analysis_service.default_frontend_repo,
+            backend_repo_name=analysis_service.default_backend_repo,
         )
         
         # Store job

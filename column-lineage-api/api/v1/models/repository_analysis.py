@@ -20,14 +20,6 @@ class AnalysisStatus(str, Enum):
 
 class RepositoryAnalysisRequest(BaseModel):
     """Request model for repository analysis."""
-    frontend_repo_name: Optional[str] = Field(
-        default="guided-workflow",
-        description="Name of the frontend repository to clone and analyze"
-    )
-    backend_repo_name: Optional[str] = Field(
-        default="guided-workflow-backend", 
-        description="Name of the backend repository to clone and analyze"
-    )
     async_processing: bool = Field(
         default=True,
         description="Whether to process the analysis asynchronously"
