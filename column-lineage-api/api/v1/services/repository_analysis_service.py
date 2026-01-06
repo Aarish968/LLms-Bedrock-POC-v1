@@ -31,6 +31,10 @@ class RepositoryAnalysisService:
         self.base_clone_dir = Path("Cloned_repo")
         self.frontend_clone_dir = self.base_clone_dir / "Frontend"
         self.backend_clone_dir = self.base_clone_dir / "Backend"
+        
+        # Directory for analysis results
+        self.analysis_results_dir = Path("Repo_Analyze")
+        self.analysis_results_dir.mkdir(exist_ok=True)
     
     def get_job(self, job_id: UUID) -> Optional[RepositoryAnalysisJob]:
         """Get job by ID."""
@@ -145,17 +149,17 @@ class RepositoryAnalysisService:
             
             logger.info(f"Verified paths exist - Frontend: {frontend_path}, Backend: {backend_path}")
             
-            # Extract base name without extension for the script
-            output_base = output_file
-            if output_file.endswith('.csv'):
-                output_base = output_file[:-4]
+            # Parse the output file path
+            output_path = Path(output_file)
+            output_base = output_path.stem  # Get filename without extension
+            output_dir = output_path.parent
             
             # Prepare command arguments with the actual cloned repository paths
             cmd_args = [
                 "python", str(main_script_path),
                 "--frontend", str(Path(frontend_path).absolute()),
                 "--backend", str(Path(backend_path).absolute()),
-                "--output", output_base,
+                "--output", output_base,  # Pass just the base name to the script
             ]
             
             logger.info(f"Executing main.py command: {' '.join(cmd_args)}")
@@ -173,16 +177,14 @@ class RepositoryAnalysisService:
             
             if process.returncode == 0:
                 # Success - verify the CSV file was created
-                expected_csv_file = f"{output_base}.csv"
-                
                 # Check multiple possible locations and names for the CSV file
                 possible_locations = [
                     Path(output_base),  # Without .csv extension (script creates this)
-                    Path(expected_csv_file),  # With .csv extension
+                    Path(f"{output_base}.csv"),  # With .csv extension
                     Path.cwd() / output_base,  # Explicit current directory without .csv
-                    Path.cwd() / expected_csv_file,  # Explicit current directory with .csv
+                    Path.cwd() / f"{output_base}.csv",  # Explicit current directory with .csv
                     main_script_path.parent / output_base,  # Script directory without .csv
-                    main_script_path.parent / expected_csv_file,  # Script directory with .csv
+                    main_script_path.parent / f"{output_base}.csv",  # Script directory with .csv
                 ]
                 
                 csv_path = None
@@ -195,40 +197,48 @@ class RepositoryAnalysisService:
                 if csv_path:
                     logger.info(f"Successfully found analysis output at: {csv_path}")
                     
-                    # Ensure the file has .csv extension and is in the current working directory
-                    final_path = Path(expected_csv_file)
+                    # Move the file to the target directory with .csv extension
+                    final_path = output_path
                     
-                    if csv_path.resolve() != final_path.resolve():
-                        try:
-                            import shutil
-                            shutil.copy2(str(csv_path), str(final_path))
-                            logger.info(f"Copied output file from {csv_path} to: {final_path}")
-                            
-                            # Verify the copy was successful
-                            if final_path.exists():
-                                logger.info(f"✅ Successfully created {final_path}")
-                            else:
-                                logger.error(f"❌ Failed to create {final_path}")
-                                final_path = csv_path  # Fall back to original location
-                        except Exception as e:
-                            logger.warning(f"Could not copy output file: {e}")
-                            # If copy fails, update the final path to point to the found file
-                            final_path = csv_path
-                    
-                    # Log file size and basic info
-                    file_size = csv_path.stat().st_size
-                    logger.info(f"Output file size: {file_size} bytes")
-                    
-                    # Verify it's a valid CSV by checking the first line
                     try:
-                        with open(csv_path, 'r', encoding='utf-8') as f:
-                            first_line = f.readline().strip()
-                            if 'Frontend_File' in first_line or 'Frontend File' in first_line:
-                                logger.info("✅ Valid CSV header detected")
-                            else:
-                                logger.warning(f"Unexpected CSV header: {first_line[:100]}")
+                        import shutil
+                        # Ensure the target directory exists
+                        final_path.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        # Copy/move the file to the final location
+                        shutil.copy2(str(csv_path), str(final_path))
+                        logger.info(f"✅ Successfully moved output file to: {final_path}")
+                        
+                        # Clean up the original file if it's different from the final path
+                        if csv_path.resolve() != final_path.resolve():
+                            try:
+                                csv_path.unlink()
+                                logger.info(f"Cleaned up temporary file: {csv_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not clean up temporary file: {e}")
+                        
+                        # Verify the final file exists and has content
+                        if final_path.exists():
+                            file_size = final_path.stat().st_size
+                            logger.info(f"Final output file size: {file_size} bytes")
+                            
+                            # Verify it's a valid CSV by checking the first line
+                            try:
+                                with open(final_path, 'r', encoding='utf-8') as f:
+                                    first_line = f.readline().strip()
+                                    if 'Frontend_File' in first_line or 'Frontend File' in first_line:
+                                        logger.info("✅ Valid CSV header detected")
+                                    else:
+                                        logger.warning(f"Unexpected CSV header: {first_line[:100]}")
+                            except Exception as e:
+                                logger.warning(f"Could not verify CSV content: {e}")
+                        else:
+                            logger.error(f"Final output file was not created: {final_path}")
+                            return False
+                            
                     except Exception as e:
-                        logger.warning(f"Could not verify CSV content: {e}")
+                        logger.error(f"Failed to move output file: {e}")
+                        return False
                     
                     # Log stdout for debugging
                     if stdout:
@@ -292,19 +302,19 @@ class RepositoryAnalysisService:
             # Step 3: Run the analysis using action_to_table.py
             self.update_job(job_id, status=AnalysisStatus.RUNNING, message="Running analysis on cloned repositories...")
             
-            # Generate output filename if not provided
-            output_file = request.output_filename
-            if not output_file:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = f"repo_analysis_{timestamp}.csv"
+            # Auto-generate output filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"repo_analysis_{timestamp}.csv"
+            output_path = self.analysis_results_dir / output_filename
             
-            logger.info(f"Using output filename: {output_file}")
+            logger.info(f"Auto-generated output filename: {output_filename}")
+            logger.info(f"Output will be saved to: {output_path}")
             
             # Run the analysis using main.py script
             success = await self._run_action_to_table_analysis(
                 frontend_path=frontend_path,
                 backend_path=backend_path,
-                output_file=output_file,
+                output_file=str(output_path),
                 job_id=job_id
             )
             
@@ -315,7 +325,7 @@ class RepositoryAnalysisService:
                     job_id,
                     status=AnalysisStatus.COMPLETED,
                     message="Analysis completed successfully",
-                    output_file=output_file,
+                    output_file=str(output_path),
                     completed_at=datetime.now(),
                 )
             else:

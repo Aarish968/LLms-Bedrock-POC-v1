@@ -1,74 +1,104 @@
 #!/usr/bin/env python3
 """
-Verification script to show the exact paths used in repository analysis.
+Verify that all paths and imports work correctly after the updates
 """
 
 import sys
 from pathlib import Path
 
-# Add the project root to Python path
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
-
-from api.v1.services.repository_analysis_service import RepositoryAnalysisService
-from api.v1.models.repository_analysis import RepositoryAnalysisRequest
-
-
-def main():
-    """Show the paths that will be used for repository analysis."""
-    print("Repository Analysis Path Verification")
-    print("=" * 50)
+def verify_structure():
+    """Verify the updated structure and imports"""
     
-    # Create service instance
-    service = RepositoryAnalysisService()
+    print("Verifying updated repository analysis structure...")
+    print("=" * 55)
     
-    # Show base directories
-    print(f"Base clone directory: {service.base_clone_dir}")
-    print(f"Frontend clone directory: {service.frontend_clone_dir}")
-    print(f"Backend clone directory: {service.backend_clone_dir}")
-    
-    # Show example paths for default repositories
-    frontend_repo = "guided-workflow"
-    backend_repo = "guided-workflow-backend"
-    
-    frontend_path = service.frontend_clone_dir / frontend_repo
-    backend_path = service.backend_clone_dir / backend_repo
-    
-    print(f"\nFor repositories '{frontend_repo}' and '{backend_repo}':")
-    print(f"Frontend will be cloned to: {frontend_path}")
-    print(f"Backend will be cloned to: {backend_path}")
-    
-    # Show the main.py script path
-    main_script_path = Path(__file__).parent / "api" / "core" / "repo_analysis" / "main.py"
-    print(f"\nMain analysis script: {main_script_path}")
-    print(f"Script exists: {main_script_path.exists()}")
-    
-    # Show what command would be executed
-    output_file = "example_analysis.csv"
-    output_base = output_file[:-4] if output_file.endswith('.csv') else output_file
-    
-    cmd_args = [
-        "python", str(main_script_path),
-        "--frontend", str(frontend_path),
-        "--backend", str(backend_path),
-        "--output", output_base,
+    # Check if required directories exist
+    directories = [
+        "Cloned_repo",
+        "Cloned_repo/Frontend", 
+        "Cloned_repo/Backend",
+        "Repo_Analyze"
     ]
     
-    print(f"\nCommand that would be executed:")
-    print(f"  {' '.join(cmd_args)}")
+    print("📁 Directory structure:")
+    for directory in directories:
+        path = Path(directory)
+        exists = path.exists()
+        print(f"  {directory:<25} {'✅ EXISTS' if exists else '❌ MISSING'}")
+        if not exists:
+            print(f"    Creating directory: {directory}")
+            path.mkdir(parents=True, exist_ok=True)
     
-    # Check if directories exist
-    print(f"\nDirectory status:")
-    print(f"  Base clone dir exists: {service.base_clone_dir.exists()}")
-    print(f"  Frontend clone dir exists: {service.frontend_clone_dir.exists()}")
-    print(f"  Backend clone dir exists: {service.backend_clone_dir.exists()}")
-    print(f"  Frontend repo exists: {frontend_path.exists()}")
-    print(f"  Backend repo exists: {backend_path.exists()}")
+    print()
     
-    # Show current working directory
-    print(f"\nCurrent working directory: {Path.cwd()}")
-    print(f"Output file would be created at: {Path.cwd() / f'{output_base}.csv'}")
-
+    # Check if key files exist
+    key_files = [
+        "api/v1/models/repository_analysis.py",
+        "api/v1/services/repository_analysis_service.py", 
+        "api/v1/routers/repository_analysis.py",
+        "api/core/repo_analysis/main.py",
+        "test_api_call.py",
+        "manual_test.py"
+    ]
+    
+    print("📄 Key files:")
+    for file_path in key_files:
+        path = Path(file_path)
+        exists = path.exists()
+        print(f"  {file_path:<45} {'✅ EXISTS' if exists else '❌ MISSING'}")
+    
+    print()
+    
+    # Test imports
+    print("🔍 Testing imports:")
+    try:
+        sys.path.append(str(Path.cwd()))
+        from api.v1.models.repository_analysis import RepositoryAnalysisRequest
+        print("  RepositoryAnalysisRequest model        ✅ OK")
+        
+        # Check the updated model structure
+        request = RepositoryAnalysisRequest()
+        fields = request.model_fields.keys()
+        expected_fields = {'frontend_repo_name', 'backend_repo_name', 'async_processing'}
+        removed_fields = {'output_filename', 'credentials_file'}
+        
+        print(f"  Model fields: {list(fields)}")
+        
+        if expected_fields.issubset(fields):
+            print("  Expected fields present               ✅ OK")
+        else:
+            missing = expected_fields - set(fields)
+            print(f"  Missing expected fields: {missing}   ❌ ERROR")
+        
+        if not any(field in fields for field in removed_fields):
+            print("  Removed fields not present            ✅ OK")
+        else:
+            present = [field for field in removed_fields if field in fields]
+            print(f"  Removed fields still present: {present} ❌ ERROR")
+            
+    except ImportError as e:
+        print(f"  Import failed: {e}                   ❌ ERROR")
+    except Exception as e:
+        print(f"  Unexpected error: {e}                 ❌ ERROR")
+    
+    print()
+    print("🎯 Summary of changes:")
+    print("  ✅ Removed 'credentials_file' from API payload")
+    print("  ✅ Removed 'output_filename' from API payload")
+    print("  ✅ Created 'Repo_Analyze/' directory for CSV files")
+    print("  ✅ Auto-generate filenames with timestamps")
+    print("  ✅ Updated service to handle new file structure")
+    print("  ✅ Updated test scripts for new API format")
+    
+    print()
+    print("🚀 Ready to test with new API payload:")
+    print("""
+    {
+        "frontend_repo_name": "guided-workflow",
+        "backend_repo_name": "guided-workflow-backend",
+        "async_processing": true
+    }
+    """)
 
 if __name__ == "__main__":
-    main()
+    verify_structure()

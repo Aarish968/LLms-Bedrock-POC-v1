@@ -28,10 +28,6 @@ class RepositoryAnalysisRequest(BaseModel):
         default="guided-workflow-backend", 
         description="Name of the backend repository to clone and analyze"
     )
-    output_filename: Optional[str] = Field(
-        default=None,
-        description="Custom output filename for the analysis results"
-    )
     async_processing: bool = Field(
         default=True,
         description="Whether to process the analysis asynchronously"
