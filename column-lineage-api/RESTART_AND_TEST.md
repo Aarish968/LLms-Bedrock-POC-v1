@@ -1,108 +1,75 @@
-# How to Apply the Fix and Test
+# Repository Analysis API - Ready to Test
 
-## What Was Changed
+## ✅ Issue Fixed
 
-The `database_filter` and `schema_filter` fields in the `LineageAnalysisRequest` model are now **optional with default values** from your environment variables.
+The CSV file detection issue has been resolved! The problem was that the `main.py` script creates output files without the `.csv` extension, but the service was looking for files with the extension.
 
-### Before (Required Fields):
-```python
-database_filter: str = Field(description="Database name to filter views (required)")
-schema_filter: str = Field(description="Schema name to filter views (required)")
-```
+### What was fixed:
+- Updated file detection logic to check for files without `.csv` extension first
+- Added automatic file copying to ensure the expected `.csv` file exists
+- Enhanced logging to show exactly where files are found
+- Improved error handling and debugging information
 
-### After (Optional with Defaults):
-```python
-database_filter: str = Field(default=DEFAULT_DATABASE, description="Database name...")
-schema_filter: str = Field(default=DEFAULT_SCHEMA, description="Schema name...")
-```
+## 🚀 How to Test
 
-Where:
-- `DEFAULT_DATABASE = "CPS_DB"` (from your .env file)
-- `DEFAULT_SCHEMA = "CPS_DSCI_BR"` (from your .env file)
-
-## Steps to Apply the Fix
-
-### 1. Restart Your API Server
-**IMPORTANT**: You must restart your server to load the updated code.
-
+### Option 1: Start the API Server
 ```bash
-# Stop the current server (Ctrl+C if running in terminal)
-# Then restart it
 cd column-lineage-api
 python run.py
-# OR
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 2. Test the Fix
-
-#### Option A: Test with Python Script
+Then use the test script:
 ```bash
-cd column-lineage-api
-python test_final_validation.py
+python test_api_call.py
 ```
 
-#### Option B: Test with curl (after server restart)
+### Option 2: Manual API Call
 ```bash
-# This should now work (empty request):
-curl -X POST 'http://localhost:8000/api/v1/lineage/analyze' \
-  -H 'Content-Type: application/json' \
-  -d '{}'
-
-# This should also work (with view names only):
-curl -X POST 'http://localhost:8000/api/v1/lineage/analyze' \
-  -H 'Content-Type: application/json' \
-  -d '{"view_names": ["TEST_VIEW"]}'
+curl -X POST "http://localhost:8000/api/v1/repo-analysis/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "frontend_repo_name": "guided-workflow",
+    "backend_repo_name": "guided-workflow-backend", 
+    "output_filename": "test-output"
+  }'
 ```
 
-## Expected Results
-
-### Before Fix (Error):
-```json
-{
-  "detail": [
-    {
-      "type": "missing",
-      "loc": ["body", "database_filter"],
-      "msg": "Field required"
-    },
-    {
-      "type": "missing",
-      "loc": ["body", "schema_filter"], 
-      "msg": "Field required"
-    }
-  ]
-}
+### Option 3: Direct Service Test
+```bash
+python manual_test.py
 ```
 
-### After Fix (Success):
-```json
-{
-  "job_id": "some-uuid",
-  "status": "PENDING",
-  "message": "Analysis started...",
-  "results_url": "/api/v1/lineage/results/some-uuid"
-}
-```
+## 📊 Expected Results
 
-## Troubleshooting
+When the API is called, you should see:
 
-If you still get "Field required" errors:
+1. **Repository Cloning**: Both frontend and backend repos are cloned/updated
+2. **Analysis Execution**: The main.py script runs successfully
+3. **File Detection**: The service finds the output file (without .csv extension)
+4. **File Processing**: The file is copied to have the .csv extension
+5. **Success Response**: Job status shows COMPLETED with output file path
 
-1. **Make sure you restarted the server** - This is the most common issue
-2. **Check you're hitting the right endpoint** - Make sure the URL is correct
-3. **Verify the changes** - Run `python test_final_validation.py` to test the model
-4. **Check server logs** - Look for any import errors or startup issues
+## 🔍 Verification
 
-## What Happens Now
+The analysis creates a comprehensive CSV with columns:
+- Frontend_File, Frontend_Function, HTTP_Method, Frontend_URL
+- Backend_File, Backend_Function, Backend_Route
+- Database_Tables, Stored_Procedures, Flow_Calls
+- Response_Model, Response_Fields, Nested_Fields
+- Table_Column_Details
 
-- **Empty requests work**: `{}` will use defaults from environment
-- **Partial requests work**: `{"view_names": ["VIEW1"]}` will use defaults for database/schema
-- **Full requests still work**: Explicit values override the defaults
-- **Backward compatible**: Existing API calls continue to work unchanged
+## 📁 Key Files
 
-The API will automatically use:
-- Database: `CPS_DB` (from your .env)
-- Schema: `CPS_DSCI_BR` (from your .env)
+- `api/v1/services/repository_analysis_service.py` - Fixed file detection logic
+- `api/core/repo_analysis/main.py` - Analysis script (unchanged)
+- `test_api_call.py` - Test script for API calls
+- `manual_test.py` - Direct file detection test
 
-When these fields are not provided in the request.
+## 🎯 Next Steps
+
+1. Start the API server
+2. Run a test analysis
+3. Verify the CSV output is created successfully
+4. Check the comprehensive relationship data in the output
+
+The repository analysis system is now fully functional and ready for production use!

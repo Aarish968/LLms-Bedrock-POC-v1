@@ -159,6 +159,7 @@ class RepositoryAnalysisService:
             ]
             
             logger.info(f"Executing main.py command: {' '.join(cmd_args)}")
+            logger.info(f"Working directory: {Path.cwd()}")
             
             # Run the main.py script
             process = await asyncio.create_subprocess_exec(
@@ -173,8 +174,61 @@ class RepositoryAnalysisService:
             if process.returncode == 0:
                 # Success - verify the CSV file was created
                 expected_csv_file = f"{output_base}.csv"
-                if Path(expected_csv_file).exists():
-                    logger.info(f"Successfully generated CSV report: {expected_csv_file}")
+                
+                # Check multiple possible locations and names for the CSV file
+                possible_locations = [
+                    Path(output_base),  # Without .csv extension (script creates this)
+                    Path(expected_csv_file),  # With .csv extension
+                    Path.cwd() / output_base,  # Explicit current directory without .csv
+                    Path.cwd() / expected_csv_file,  # Explicit current directory with .csv
+                    main_script_path.parent / output_base,  # Script directory without .csv
+                    main_script_path.parent / expected_csv_file,  # Script directory with .csv
+                ]
+                
+                csv_path = None
+                for location in possible_locations:
+                    if location.exists():
+                        csv_path = location
+                        logger.info(f"Found output file at: {csv_path}")
+                        break
+                
+                if csv_path:
+                    logger.info(f"Successfully found analysis output at: {csv_path}")
+                    
+                    # Ensure the file has .csv extension and is in the current working directory
+                    final_path = Path(expected_csv_file)
+                    
+                    if csv_path.resolve() != final_path.resolve():
+                        try:
+                            import shutil
+                            shutil.copy2(str(csv_path), str(final_path))
+                            logger.info(f"Copied output file from {csv_path} to: {final_path}")
+                            
+                            # Verify the copy was successful
+                            if final_path.exists():
+                                logger.info(f"✅ Successfully created {final_path}")
+                            else:
+                                logger.error(f"❌ Failed to create {final_path}")
+                                final_path = csv_path  # Fall back to original location
+                        except Exception as e:
+                            logger.warning(f"Could not copy output file: {e}")
+                            # If copy fails, update the final path to point to the found file
+                            final_path = csv_path
+                    
+                    # Log file size and basic info
+                    file_size = csv_path.stat().st_size
+                    logger.info(f"Output file size: {file_size} bytes")
+                    
+                    # Verify it's a valid CSV by checking the first line
+                    try:
+                        with open(csv_path, 'r', encoding='utf-8') as f:
+                            first_line = f.readline().strip()
+                            if 'Frontend_File' in first_line or 'Frontend File' in first_line:
+                                logger.info("✅ Valid CSV header detected")
+                            else:
+                                logger.warning(f"Unexpected CSV header: {first_line[:100]}")
+                    except Exception as e:
+                        logger.warning(f"Could not verify CSV content: {e}")
                     
                     # Log stdout for debugging
                     if stdout:
@@ -182,8 +236,22 @@ class RepositoryAnalysisService:
                     
                     return True
                 else:
-                    logger.error(f"CSV file was not created: {expected_csv_file}")
-                    # Log stdout and stderr for debugging even on success
+                    logger.error(f"Output file was not found at any expected location:")
+                    for i, location in enumerate(possible_locations):
+                        logger.error(f"  {i+1}. {location.absolute()} (exists: {location.exists()})")
+                    
+                    # List all files in current directory for debugging
+                    try:
+                        current_files = list(Path.cwd().glob("*"))
+                        csv_files = [f for f in current_files if f.suffix.lower() == '.csv']
+                        other_files = [f for f in current_files if f.name.startswith(output_base)]
+                        
+                        logger.info(f"CSV files in current directory: {[f.name for f in csv_files]}")
+                        logger.info(f"Files starting with '{output_base}': {[f.name for f in other_files]}")
+                    except Exception as e:
+                        logger.error(f"Error listing files: {e}")
+                    
+                    # Log stdout and stderr for debugging
                     if stdout:
                         logger.info(f"Script stdout: {stdout.decode()}")
                     if stderr:
