@@ -214,18 +214,40 @@ if status_data["status"] == "completed":
 
 ## What the Analysis Does
 
-The repository analysis system now includes automatic repository cloning:
+The repository analysis system now includes automatic repository cloning and comprehensive analysis:
 
 1. **Clone Repositories**: Automatically clones frontend and backend repositories from AWS CodeCommit
    - Creates folder structure: `Cloned_repo/Frontend/{frontend_repo_name}` and `Cloned_repo/Backend/{backend_repo_name}`
    - Uses AWS credentials for authentication
    - Handles repository updates if already cloned
 
-2. **Analyzes Frontend Code**: Scans TypeScript files in the cloned frontend repository to find API calls
-3. **Analyzes Backend Code**: Scans Python files in the cloned backend repository to find route handlers and database operations
-4. **Maps Relationships**: Creates mappings between frontend actions and backend endpoints
-5. **Extracts Database Info**: Identifies tables, columns, stored procedures, and response models
-6. **Generates CSV Report**: Creates a comprehensive CSV file with all relationships
+2. **Analyzes Frontend Code**: Uses `CompleteFrontendAnalyzer` to scan TypeScript files in the cloned frontend repository
+   - Identifies API calls and HTTP methods
+   - Extracts URL patterns and function names
+   - Maps frontend functions to API endpoints
+
+3. **Analyzes Backend Code**: Uses `CompleteBackendAnalyzer` to scan Python files in the cloned backend repository
+   - Identifies route handlers and decorators
+   - Performs deep AST analysis for database operations
+   - Extracts table references, stored procedures, and flow calls
+
+4. **Maps Relationships**: Uses `APIMapper` to create comprehensive mappings between frontend and backend
+   - Matches frontend API calls to backend route handlers
+   - Correlates HTTP methods and URL patterns
+   - Identifies unmatched endpoints
+
+5. **Extracts Database Info**: Performs detailed database analysis using `TableColumnExtractor`
+   - Identifies database tables accessed by each endpoint
+   - Extracts column information from ORM definitions
+   - Maps stored procedures and response models
+   - Analyzes nested data structures
+
+6. **Generates Enhanced CSV Report**: Uses the `main.py` script with `EnhancedCSVGenerator` to create comprehensive reports with columns:
+   - Frontend File, Frontend Function, HTTP Method, Frontend URL
+   - Backend File, Backend Function, Backend Route
+   - Database Tables, Response Model, Response Fields
+   - Nested Fields, Table Column Details, Column Count
+   - Relationship Type (single_table, multi_table_join, no_tables, unmatched)
 
 ## Prerequisites
 
@@ -257,17 +279,30 @@ Or set them as system environment variables.
 
 ## Output Format
 
-The generated CSV file contains columns like:
-- `Frontend_File` - Source frontend file
+The generated CSV file contains detailed columns created by the `main.py` script using `EnhancedCSVGenerator`:
+
+### CSV Columns (from main.py)
+- `Frontend_File` - Source frontend TypeScript file
 - `Frontend_Function` - Frontend function making the API call
-- `HTTP_Method` - HTTP method (GET, POST, etc.)
-- `Frontend_URL` - API endpoint URL
-- `Backend_File` - Backend file handling the request
-- `Backend_Function` - Backend function name
-- `Database_Tables` - Tables accessed by the endpoint
-- `Stored_Procedures` - Stored procedures called
-- `Response_Model` - Response model used
-- `Table_Column_Details` - Detailed column information
+- `HTTP_Method` - HTTP method (GET, POST, PUT, DELETE, etc.)
+- `Frontend_URL` - API endpoint URL pattern
+- `Backend_File` - Backend Python file handling the request
+- `Backend_Function` - Backend function/route handler name
+- `Backend_Route` - Backend route pattern
+- `Database_Tables` - Database tables accessed by the endpoint (semicolon-separated)
+- `Stored_Procedures` - Stored procedures called (comma-separated)
+- `Flow_Calls` - Flow calls made (comma-separated)
+- `Response_Model` - Pydantic response model used
+- `Response_Fields` - Fields in the response model (comma-separated)
+- `Nested_Fields` - Nested object fields in the response (comma-separated)
+- `Table_Column_Details` - Detailed column information per table in format `TABLE:[col1,col2,col3]`
+
+### Enhanced Features
+- **Table-Column Mapping**: Shows actual database columns for each table
+- **ORM Analysis**: Extracts column information from SQLAlchemy ORM definitions
+- **Response Model Analysis**: Maps Pydantic response models to database fields
+- **Nested Field Support**: Handles complex nested data structures
+- **Stored Procedure Tracking**: Identifies stored procedures called by endpoints
 
 ## Error Handling
 

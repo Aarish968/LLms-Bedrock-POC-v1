@@ -3,6 +3,7 @@
 import asyncio
 import os
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -112,8 +113,96 @@ class RepositoryAnalysisService:
             return frontend_path, backend_path
             
         except Exception as e:
-            logger.error("Repository cloning failed", job_id=str(job_id), error=str(e))
+            logger.error("Repository analysis failed", job_id=str(job_id), error=str(e))
             raise
+    
+    async def _run_action_to_table_analysis(
+        self,
+        frontend_path: str,
+        backend_path: str,
+        output_file: str,
+        job_id: UUID
+    ) -> bool:
+        """Run the main.py analysis script on the cloned repositories."""
+        try:
+            logger.info(f"Running main.py analysis script", job_id=str(job_id))
+            
+            # Get the path to the main.py script
+            main_script_path = Path(__file__).parent.parent.parent / "core" / "repo_analysis" / "main.py"
+            
+            if not main_script_path.exists():
+                logger.error(f"main.py script not found: {main_script_path}")
+                return False
+            
+            # Check if the cloned repositories exist
+            if not Path(frontend_path).exists():
+                logger.error(f"Frontend repository path does not exist: {frontend_path}")
+                return False
+            
+            if not Path(backend_path).exists():
+                logger.error(f"Backend repository path does not exist: {backend_path}")
+                return False
+            
+            logger.info(f"Verified paths exist - Frontend: {frontend_path}, Backend: {backend_path}")
+            
+            # Extract base name without extension for the script
+            output_base = output_file
+            if output_file.endswith('.csv'):
+                output_base = output_file[:-4]
+            
+            # Prepare command arguments with the actual cloned repository paths
+            cmd_args = [
+                "python", str(main_script_path),
+                "--frontend", str(Path(frontend_path).absolute()),
+                "--backend", str(Path(backend_path).absolute()),
+                "--output", output_base,
+            ]
+            
+            logger.info(f"Executing main.py command: {' '.join(cmd_args)}")
+            
+            # Run the main.py script
+            process = await asyncio.create_subprocess_exec(
+                *cmd_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=Path.cwd(),
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # Success - verify the CSV file was created
+                expected_csv_file = f"{output_base}.csv"
+                if Path(expected_csv_file).exists():
+                    logger.info(f"Successfully generated CSV report: {expected_csv_file}")
+                    
+                    # Log stdout for debugging
+                    if stdout:
+                        logger.info(f"Script output: {stdout.decode()}")
+                    
+                    return True
+                else:
+                    logger.error(f"CSV file was not created: {expected_csv_file}")
+                    # Log stdout and stderr for debugging even on success
+                    if stdout:
+                        logger.info(f"Script stdout: {stdout.decode()}")
+                    if stderr:
+                        logger.error(f"Script stderr: {stderr.decode()}")
+                    return False
+            else:
+                # Error
+                error_msg = stderr.decode() if stderr else "Unknown error occurred"
+                logger.error(f"main.py script failed with return code {process.returncode}: {error_msg}")
+                
+                # Also log stdout in case there's useful info
+                if stdout:
+                    logger.info(f"Script stdout: {stdout.decode()}")
+                
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error running main.py analysis script: {e}", job_id=str(job_id))
+            return False
     
     async def run_analysis(
         self,
@@ -132,42 +221,26 @@ class RepositoryAnalysisService:
                 backend_repo_name=request.backend_repo_name,
             )
             
-            # Step 2: Update job status to running analysis
+            # Step 3: Run the analysis using action_to_table.py
             self.update_job(job_id, status=AnalysisStatus.RUNNING, message="Running analysis on cloned repositories...")
             
-            # Step 3: Get the path to the main.py script
-            repo_analysis_script = Path(__file__).parent.parent.parent / "core" / "repo_analysis" / "main.py"
-            
-            if not repo_analysis_script.exists():
-                raise FileNotFoundError(f"Repository analysis script not found: {repo_analysis_script}")
-            
-            # Step 4: Generate output filename if not provided
+            # Generate output filename if not provided
             output_file = request.output_filename
             if not output_file:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_file = f"repo_analysis_{timestamp}.csv"
             
-            # Step 5: Prepare command arguments with cloned repository paths
-            cmd_args = [
-                "python", str(repo_analysis_script),
-                "--frontend", frontend_path,
-                "--backend", backend_path,
-                "--output", output_file,
-            ]
+            logger.info(f"Using output filename: {output_file}")
             
-            logger.info("Executing repository analysis command", command=" ".join(cmd_args))
-            
-            # Step 6: Run the analysis script
-            process = await asyncio.create_subprocess_exec(
-                *cmd_args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=Path.cwd(),
+            # Run the analysis using main.py script
+            success = await self._run_action_to_table_analysis(
+                frontend_path=frontend_path,
+                backend_path=backend_path,
+                output_file=output_file,
+                job_id=job_id
             )
             
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
+            if success:
                 # Success
                 logger.info("Repository analysis completed successfully", job_id=str(job_id))
                 self.update_job(
@@ -179,13 +252,12 @@ class RepositoryAnalysisService:
                 )
             else:
                 # Error
-                error_msg = stderr.decode() if stderr else "Unknown error occurred"
-                logger.error("Repository analysis failed", job_id=str(job_id), error=error_msg)
+                logger.error("Repository analysis failed", job_id=str(job_id))
                 self.update_job(
                     job_id,
                     status=AnalysisStatus.FAILED,
                     message="Analysis failed",
-                    error_message=error_msg,
+                    error_message="Analysis script execution failed",
                     completed_at=datetime.now(),
                 )
         
