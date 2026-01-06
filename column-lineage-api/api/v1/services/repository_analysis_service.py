@@ -246,11 +246,11 @@ class RepositoryAnalysisService(LoggerMixin):
             
             # Check for placeholder values and provide defaults
             if frontend_path == "string" or not frontend_path or frontend_path.strip() == "":
-                frontend_path = "cloned-repo/frontend/guided-workflow"
+                frontend_path = "cloned-repo/Frontend/guided-workflow"
                 self.logger.info("Using default frontend path", path=frontend_path)
             
             if backend_path == "string" or not backend_path or backend_path.strip() == "":
-                backend_path = "cloned-repo/backend/guided-workflow-backend"
+                backend_path = "cloned-repo/Backend/guided-workflow-backend"
                 self.logger.info("Using default backend path", path=backend_path)
             
             # Convert to absolute paths
@@ -261,103 +261,154 @@ class RepositoryAnalysisService(LoggerMixin):
             backend_exists = Path(backend_path).exists()
             
             self.logger.info(
-                "Path check results",
+                "Initial path check results",
                 frontend_path=frontend_path,
                 frontend_exists=frontend_exists,
                 backend_path=backend_path,
                 backend_exists=backend_exists
             )
             
-            # Step 2: Handle missing repositories
-            if not frontend_exists or not backend_exists:
-                job.status = RepositoryAnalysisStatus.CLONING
-                self.logger.info("Some paths missing, checking cloned-repo directory")
-                
-                # Check if we have repositories in cloned-repo directory
-                cloned_repo_dir = Path("cloned-repo")
-                if cloned_repo_dir.exists():
-                    # Look for specific frontend and backend directories
-                    potential_frontend = cloned_repo_dir / "frontend" / "guided-workflow"
-                    potential_backend = cloned_repo_dir / "backend" / "guided-workflow-backend"
-                    
-                    if not frontend_exists and potential_frontend.exists():
-                        frontend_path = str(potential_frontend.resolve())
-                        frontend_exists = True
-                        self.logger.info("Found existing frontend in cloned-repo", path=frontend_path)
-                    
-                    if not backend_exists and potential_backend.exists():
-                        backend_path = str(potential_backend.resolve())
-                        backend_exists = True
-                        self.logger.info("Found existing backend in cloned-repo", path=backend_path)
-                
-                # If still missing, try to clone from CodeCommit
-                if not frontend_exists or not backend_exists:
-                    self.logger.info("Attempting to clone missing repositories from CodeCommit")
-                    
-                    # Update cloning service credentials
-                    self.cloning_service.credentials_file = request.credentials_file
-                    
-                    # Try to discover and clone repositories
+            # Step 2: Handle repository synchronization (clone or pull)
+            job.status = RepositoryAnalysisStatus.CLONING
+            self.logger.info("Synchronizing repositories (clone if missing, pull if exists)")
+            
+            # Update cloning service credentials
+            self.cloning_service.credentials_file = request.credentials_file
+            
+            # Check if we have repositories in cloned-repo directory first
+            cloned_repo_dir = Path("cloned-repo")
+            cloned_repo_dir.mkdir(exist_ok=True)
+            
+            # Create Frontend and Backend subdirectories
+            frontend_dir = cloned_repo_dir / "Frontend"
+            backend_dir = cloned_repo_dir / "Backend"
+            frontend_dir.mkdir(exist_ok=True)
+            backend_dir.mkdir(exist_ok=True)
+            
+            # Look for specific frontend and backend directories
+            potential_frontend = frontend_dir / "guided-workflow"
+            potential_backend = backend_dir / "guided-workflow-backend"
+            
+            # Handle frontend repository
+            if not frontend_exists:
+                if potential_frontend.exists():
+                    frontend_path = str(potential_frontend.resolve())
+                    frontend_exists = True
+                    self.logger.info("Found existing frontend in cloned-repo/Frontend", path=frontend_path)
+                else:
+                    # Try to discover and clone/pull frontend repository
                     try:
                         discovered = self.discovery_service.discover_repositories()
                         
-                        if not frontend_exists and discovered.get('frontend'):
-                            # Try to clone the first frontend repository
-                            frontend_repo = discovered['frontend'][0]
-                            self.logger.info(f"Attempting to clone frontend repository: {frontend_repo}")
+                        if discovered.get('frontend'):
+                            # Use the first frontend repository (guided-workflow)
+                            frontend_repo = "guided-workflow"  # Specific repo name
+                            self.logger.info(f"Synchronizing frontend repository: {frontend_repo}")
+                            
                             clone_success = self.cloning_service.clone_repository(
                                 frontend_repo, 
-                                "cloned-repo"
+                                "cloned-repo/Frontend"
                             )
                             if clone_success:
-                                # Update frontend path to the cloned repository
-                                frontend_path = str(Path("cloned-repo") / frontend_repo)
+                                frontend_path = str(Path("cloned-repo/Frontend") / frontend_repo)
                                 frontend_exists = Path(frontend_path).exists()
+                                self.logger.info(f"Frontend repository synchronized: {frontend_path}")
+                            
+                    except Exception as e:
+                        self.logger.warning("Failed to synchronize frontend repository", error=str(e))
+            else:
+                # Frontend path exists, try to pull latest changes if it's a git repo
+                self._pull_if_git_repo(frontend_path, "frontend")
+            
+            # Handle backend repository
+            if not backend_exists:
+                if potential_backend.exists():
+                    backend_path = str(potential_backend.resolve())
+                    backend_exists = True
+                    self.logger.info("Found existing backend in cloned-repo/Backend", path=backend_path)
+                else:
+                    # Try to discover and clone/pull backend repository
+                    try:
+                        discovered = self.discovery_service.discover_repositories()
                         
-                        if not backend_exists and discovered.get('backend'):
-                            # Try to clone the first backend repository
-                            backend_repo = discovered['backend'][0]
-                            self.logger.info(f"Attempting to clone backend repository: {backend_repo}")
+                        if discovered.get('backend'):
+                            # Use the specific backend repository (guided-workflow-backend)
+                            backend_repo = "guided-workflow-backend"  # Specific repo name
+                            self.logger.info(f"Synchronizing backend repository: {backend_repo}")
+                            
                             clone_success = self.cloning_service.clone_repository(
                                 backend_repo, 
-                                "cloned-repo"
+                                "cloned-repo/Backend"
                             )
                             if clone_success:
-                                # Update backend path to the cloned repository
-                                backend_path = str(Path("cloned-repo") / backend_repo)
+                                backend_path = str(Path("cloned-repo/Backend") / backend_repo)
                                 backend_exists = Path(backend_path).exists()
+                                self.logger.info(f"Backend repository synchronized: {backend_path}")
                                 
                     except Exception as e:
-                        self.logger.warning("Failed to discover/clone repositories", error=str(e))
-                        # Continue with existing paths if any
+                        self.logger.warning("Failed to synchronize backend repository", error=str(e))
+            else:
+                # Backend path exists, try to pull latest changes if it's a git repo
+                self._pull_if_git_repo(backend_path, "backend")
             
-            # Step 3: Verify paths exist after processing
+            # Step 3: Final verification and fallback search
             frontend_exists = Path(frontend_path).exists()
             backend_exists = Path(backend_path).exists()
             
+            self.logger.info(
+                "Final path verification after synchronization",
+                frontend_path=frontend_path,
+                frontend_exists=frontend_exists,
+                backend_path=backend_path,
+                backend_exists=backend_exists
+            )
+            
+            # If paths still don't exist, try to find alternative directories
             if not frontend_exists:
                 self.logger.warning(f"Frontend path still does not exist: {frontend_path}")
-                # Try to find any frontend-like directory in cloned-repo
-                cloned_repo_dir = Path("cloned-repo")
-                if cloned_repo_dir.exists():
-                    for item in cloned_repo_dir.iterdir():
-                        if item.is_dir() and any(pattern in item.name.lower() for pattern in ['frontend', 'ui', 'web', 'client']):
+                # Try to find any frontend-like directory in cloned-repo/Frontend
+                frontend_search_dir = Path("cloned-repo/Frontend")
+                if frontend_search_dir.exists():
+                    for item in frontend_search_dir.iterdir():
+                        if item.is_dir() and any(pattern in item.name.lower() for pattern in ['frontend', 'ui', 'web', 'client', 'guided-workflow']):
                             frontend_path = str(item.resolve())
                             frontend_exists = True
                             self.logger.info(f"Found alternative frontend path: {frontend_path}")
                             break
+                
+                # If still not found, check the root cloned-repo directory
+                if not frontend_exists:
+                    cloned_repo_dir = Path("cloned-repo")
+                    if cloned_repo_dir.exists():
+                        for item in cloned_repo_dir.iterdir():
+                            if item.is_dir() and any(pattern in item.name.lower() for pattern in ['frontend', 'ui', 'web', 'client', 'guided-workflow']):
+                                frontend_path = str(item.resolve())
+                                frontend_exists = True
+                                self.logger.info(f"Found alternative frontend path in root: {frontend_path}")
+                                break
             
             if not backend_exists:
                 self.logger.warning(f"Backend path still does not exist: {backend_path}")
-                # Try to find any backend-like directory in cloned-repo
-                cloned_repo_dir = Path("cloned-repo")
-                if cloned_repo_dir.exists():
-                    for item in cloned_repo_dir.iterdir():
-                        if item.is_dir() and any(pattern in item.name.lower() for pattern in ['backend', 'api', 'server']):
+                # Try to find any backend-like directory in cloned-repo/Backend
+                backend_search_dir = Path("cloned-repo/Backend")
+                if backend_search_dir.exists():
+                    for item in backend_search_dir.iterdir():
+                        if item.is_dir() and any(pattern in item.name.lower() for pattern in ['backend', 'api', 'server', 'guided-workflow-backend']):
                             backend_path = str(item.resolve())
                             backend_exists = True
                             self.logger.info(f"Found alternative backend path: {backend_path}")
                             break
+                
+                # If still not found, check the root cloned-repo directory
+                if not backend_exists:
+                    cloned_repo_dir = Path("cloned-repo")
+                    if cloned_repo_dir.exists():
+                        for item in cloned_repo_dir.iterdir():
+                            if item.is_dir() and any(pattern in item.name.lower() for pattern in ['backend', 'api', 'server', 'guided-workflow-backend']):
+                                backend_path = str(item.resolve())
+                                backend_exists = True
+                                self.logger.info(f"Found alternative backend path in root: {backend_path}")
+                                break
             
             # Final check - if still no paths, create mock analysis
             if not frontend_exists and not backend_exists:
@@ -394,15 +445,17 @@ class RepositoryAnalysisService(LoggerMixin):
             job.total_repositories = 2
             job.discovered_repositories = job.cloned_repositories
             
-            # Step 4: Run analysis
+            # Step 4: Run analysis if we have valid repositories
             job.status = RepositoryAnalysisStatus.ANALYZING
             self.logger.info("Running repository analysis")
             
             # Import analysis functionality
             from main import EnhancedCSVGenerator
             
-            # Generate output filename
-            output_file = f"repository_analysis_{str(job.job_id)[:8]}.{request.output_format}"
+            # Generate output filename with directory
+            output_dir = Path("Repo_analysis_result")
+            output_dir.mkdir(exist_ok=True)
+            output_file = output_dir / f"repository_analysis_{str(job.job_id)[:8]}.{request.output_format}"
             
             # Run the analysis
             generator = EnhancedCSVGenerator(frontend_path, backend_path)
@@ -475,6 +528,36 @@ class RepositoryAnalysisService(LoggerMixin):
             job.completed_at = datetime.utcnow()
             job.error_message = str(e)
     
+    def _pull_if_git_repo(self, repo_path: str, repo_type: str) -> bool:
+        """Pull latest changes if the path is a git repository."""
+        try:
+            git_dir = Path(repo_path) / ".git"
+            if git_dir.exists():
+                self.logger.info(f"Pulling latest changes for {repo_type} repository", path=repo_path)
+                
+                import subprocess
+                result = subprocess.run(
+                    ['git', 'pull'],
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode == 0:
+                    self.logger.info(f"Successfully pulled latest changes for {repo_type} repository")
+                    return True
+                else:
+                    self.logger.warning(f"Could not pull changes for {repo_type} repository: {result.stderr}")
+                    return False
+            else:
+                self.logger.info(f"{repo_type} repository is not a git repository, skipping pull", path=repo_path)
+                return True
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to pull changes for {repo_type} repository", error=str(e))
+            return False
+
     def _extract_repo_name_from_path(self, path: str) -> str:
         """Extract repository name from a path."""
         # For paths like "D:\LLms-Bedrock-POC-v1\column-lineage-api\cloned-repo\backend\guided-workflow-backend"
@@ -541,17 +624,26 @@ class RepositoryAnalysisService(LoggerMixin):
                 reader = csv.DictReader(f)
                 
                 for row in reader:
-                    # Map CSV columns to API endpoint mapping
+                    # Map CSV columns to API endpoint mapping (updated for new headers)
                     mapping = ApiEndpointMapping(
-                        frontend_call=row.get('Frontend_Call', ''),
-                        backend_endpoint=row.get('Backend_Endpoint', ''),
-                        http_method=row.get('HTTP_Method', 'GET'),
-                        database_tables=row.get('Database_Tables', '').split(',') if row.get('Database_Tables') else [],
-                        database_columns=row.get('Database_Columns', '').split(',') if row.get('Database_Columns') else [],
-                        confidence_score=float(row.get('Confidence_Score', 1.0)),
+                        frontend_call=row.get('FRONTEND_FILE', ''),  # Using file as call for now
+                        backend_endpoint=row.get('BACKEND_ROUTE', ''),
+                        http_method=row.get('HTTP_METHOD', 'GET'),
+                        database_tables=row.get('DATABASE_TABLES', '').split(',') if row.get('DATABASE_TABLES') else [],
+                        database_columns=row.get('RESPONSE_FIELDS', '').split(',') if row.get('RESPONSE_FIELDS') else [],
+                        confidence_score=1.0,  # Default confidence score
                         metadata={
                             "csv_row": row,
-                            "source_file": csv_file
+                            "source_file": csv_file,
+                            "frontend_function": row.get('FRONTEND_FUNCTION', ''),
+                            "frontend_url": row.get('FRONTEND_URL', ''),
+                            "backend_file": row.get('BACKEND_FILE', ''),
+                            "backend_function": row.get('BACKEND_FUNCTION', ''),
+                            "stored_procedures": row.get('STORED_PROCEDURES', ''),
+                            "flow_calls": row.get('FLOW_CALLS', ''),
+                            "response_model": row.get('RESPONSE_MODEL', ''),
+                            "nested_fields": row.get('NESTED_FIELDS', ''),
+                            "table_column_details": row.get('TABLE_COLUMN_DETAILS', '')
                         }
                     )
                     api_mappings.append(mapping)
@@ -588,8 +680,10 @@ class RepositoryAnalysisService(LoggerMixin):
         
         # API Mappings section
         fieldnames = [
-            "Frontend_Call", "Backend_Endpoint", "HTTP_Method",
-            "Database_Tables", "Database_Columns", "Confidence_Score"
+            "FRONTEND_FILE", "FRONTEND_FUNCTION", "HTTP_METHOD", "FRONTEND_URL",
+            "BACKEND_FILE", "BACKEND_FUNCTION", "BACKEND_ROUTE", "DATABASE_TABLES",
+            "STORED_PROCEDURES", "FLOW_CALLS", "RESPONSE_MODEL", "RESPONSE_FIELDS", 
+            "NESTED_FIELDS", "TABLE_COLUMN_DETAILS"
         ]
         
         if include_metadata:
@@ -600,12 +694,20 @@ class RepositoryAnalysisService(LoggerMixin):
         
         for mapping in api_mappings:
             row = {
-                "Frontend_Call": mapping.frontend_call,
-                "Backend_Endpoint": mapping.backend_endpoint,
-                "HTTP_Method": mapping.http_method,
-                "Database_Tables": ",".join(mapping.database_tables),
-                "Database_Columns": ",".join(mapping.database_columns),
-                "Confidence_Score": mapping.confidence_score,
+                "FRONTEND_FILE": mapping.frontend_call,  # This will be updated when we have proper file info
+                "FRONTEND_FUNCTION": "",  # Will be populated from actual analysis
+                "HTTP_METHOD": mapping.http_method,
+                "FRONTEND_URL": "",  # Will be populated from actual analysis
+                "BACKEND_FILE": "",  # Will be populated from actual analysis
+                "BACKEND_FUNCTION": "",  # Will be populated from actual analysis
+                "BACKEND_ROUTE": mapping.backend_endpoint,
+                "DATABASE_TABLES": ",".join(mapping.database_tables),
+                "STORED_PROCEDURES": "",  # Will be populated from actual analysis
+                "FLOW_CALLS": "",  # Will be populated from actual analysis
+                "RESPONSE_MODEL": "",  # Will be populated from actual analysis
+                "RESPONSE_FIELDS": ",".join(mapping.database_columns),  # Using database_columns as placeholder
+                "NESTED_FIELDS": "",  # Will be populated from actual analysis
+                "TABLE_COLUMN_DETAILS": "",  # Will be populated from actual analysis
             }
             
             if include_metadata:
@@ -677,12 +779,20 @@ class RepositoryAnalysisService(LoggerMixin):
             mappings_data = []
             for mapping in api_mappings:
                 row = {
-                    "Frontend_Call": mapping.frontend_call,
-                    "Backend_Endpoint": mapping.backend_endpoint,
-                    "HTTP_Method": mapping.http_method,
-                    "Database_Tables": ",".join(mapping.database_tables),
-                    "Database_Columns": ",".join(mapping.database_columns),
-                    "Confidence_Score": mapping.confidence_score,
+                    "FRONTEND_FILE": mapping.frontend_call,  # This will be updated when we have proper file info
+                    "FRONTEND_FUNCTION": "",  # Will be populated from actual analysis
+                    "HTTP_METHOD": mapping.http_method,
+                    "FRONTEND_URL": "",  # Will be populated from actual analysis
+                    "BACKEND_FILE": "",  # Will be populated from actual analysis
+                    "BACKEND_FUNCTION": "",  # Will be populated from actual analysis
+                    "BACKEND_ROUTE": mapping.backend_endpoint,
+                    "DATABASE_TABLES": ",".join(mapping.database_tables),
+                    "STORED_PROCEDURES": "",  # Will be populated from actual analysis
+                    "FLOW_CALLS": "",  # Will be populated from actual analysis
+                    "RESPONSE_MODEL": "",  # Will be populated from actual analysis
+                    "RESPONSE_FIELDS": ",".join(mapping.database_columns),  # Using database_columns as placeholder
+                    "NESTED_FIELDS": "",  # Will be populated from actual analysis
+                    "TABLE_COLUMN_DETAILS": "",  # Will be populated from actual analysis
                 }
                 
                 if include_metadata:

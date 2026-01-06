@@ -91,16 +91,25 @@ class EnhancedCSVGenerator:
     
     def _write_enhanced_csv(self, mappings: List[Mapping], output_file: str):
         """Write enhanced CSV with comprehensive data."""
+        # Create output directory if it doesn't exist
+        output_dir = Path("Repo_analysis_result")
+        output_dir.mkdir(exist_ok=True)
+        
+        # Update output file path to include the directory
+        if not str(output_file).startswith("Repo_analysis_result"):
+            output_file = output_dir / Path(output_file).name
+        
+        logger.info(f"Writing enhanced CSV to: {output_file}")
+        
         with open(output_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
-            # Enhanced header with all the fields from your original code
+            # Updated header to match the sample format
             writer.writerow([
-                "Frontend File", "Frontend Function", "HTTP Method", "Frontend URL",
-                "Backend File", "Backend Function", "Backend Route", "Tables",
-                "Response Model", "Response Fields", "Nested Fields", "Table Column Details",
-                "Column Count", "Relationship Type", "Stored Procedures", "Flow Calls",
-                "Confidence Score", "Analysis Metadata"
+                "FRONTEND_FILE", "FRONTEND_FUNCTION", "HTTP_METHOD", "FRONTEND_URL",
+                "BACKEND_FILE", "BACKEND_FUNCTION", "BACKEND_ROUTE", "DATABASE_TABLES",
+                "STORED_PROCEDURES", "FLOW_CALLS", "RESPONSE_MODEL", "RESPONSE_FIELDS", 
+                "NESTED_FIELDS", "TABLE_COLUMN_DETAILS"
             ])
             
             for mapping in mappings:
@@ -199,16 +208,12 @@ class EnhancedCSVGenerator:
                     mapping.backend.function_name if mapping.backend else "",
                     mapping.backend.route_pattern if mapping.backend else "",
                     tables_str,
+                    stored_procedures_str,
+                    flow_calls_str,
                     response_model,
                     columns_str,
                     nested_columns_str,
-                    table_column_details,
-                    str(column_count),
-                    relationship_type,
-                    stored_procedures_str,
-                    flow_calls_str,
-                    str(confidence_score),
-                    json.dumps(metadata)
+                    table_column_details
                 ])
     
     def _calculate_confidence_score(self, mapping: Mapping) -> float:
