@@ -17,7 +17,7 @@ import { Search, PlayArrow, Person, Work, Analytics, Code } from '@mui/icons-mat
 import ColumnLineageTable from '../components/ColumnLineageTable/ColumnLineageTable'
 import LineageAnalysisDialog from '../components/LineageAnalysis/LineageAnalysisDialog'
 import JobsDashboard from '../components/LineageAnalysis/JobsDashboard'
-import { RepositoryAnalysisDialog } from '../components/RepositoryAnalysis'
+import { RepositoryAnalysisDialog, RepositoryAnalysisJobs } from '../components/RepositoryAnalysis'
 import useUserContext from '@/hooks/users/useUserContext'
 import { RepositoryAnalysisResponse } from '../types/repositoryAnalysis'
 
@@ -47,8 +47,8 @@ const DashboardPage = () => {
   }
 
   const handleRepoAnalysisStarted = (response: RepositoryAnalysisResponse) => {
-    // Switch to Analysis Jobs tab when repo analysis starts
-    setCurrentTab(1)
+    // Switch to Repository Analysis Jobs tab when repo analysis starts
+    setCurrentTab(2)
     setRepoAnalysisDialogOpen(false)
     console.log('Repository analysis started:', response)
   }
@@ -133,6 +133,11 @@ const DashboardPage = () => {
               label="Analysis Jobs" 
               iconPosition="start"
             />
+            <Tab 
+              icon={<Code />} 
+              label="Repository Analysis Jobs" 
+              iconPosition="start"
+            />
           </Tabs>
         </Box>
 
@@ -202,8 +207,11 @@ const DashboardPage = () => {
           {currentTab === 1 && (
             <JobsDashboard 
               onNewAnalysis={handleStartAnalysis}
-              onNewRepoAnalysis={handleStartRepoAnalysis}
             />
+          )}
+
+          {currentTab === 2 && (
+            <RepositoryAnalysisJobs onNewAnalysis={handleStartRepoAnalysis} />
           )}
         </CardContent>
       </Card>
