@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 
 import { RepositoryAnalysisService } from '../../api/repositoryAnalysisService';
+import useRepositoryAnalysis from '../../hooks/useRepositoryAnalysis';
 import {
   RepositoryAnalysisResponse,
   AnalysisStatus,
@@ -46,6 +47,7 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysisResponse, setAnalysisResponse] = useState<RepositoryAnalysisResponse | null>(null);
+  const { hasRunningJob } = useRepositoryAnalysis();
 
   const handleStartAnalysis = async () => {
     setIsStarting(true);
@@ -117,7 +119,7 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
       case AnalysisStatus.CANCELLED:
         return <Cancel />;
       default:
-        return null;
+        return undefined;
     }
   };
 
@@ -142,6 +144,12 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
 
       <DialogContent>
         <Box sx={{ py: 1 }}>
+          {hasRunningJob && !analysisResponse && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              There is already a repository analysis job running. Please wait for it to complete before starting a new one.
+            </Alert>
+          )}
+
           {!analysisResponse && !error && (
             <>
               <Typography variant="body1" gutterBottom>
@@ -197,7 +205,7 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
                     Status:
                   </Typography>
                   <Chip
-                    icon={getStatusIcon(analysisResponse.status)}
+                    {...(getStatusIcon(analysisResponse.status) && { icon: getStatusIcon(analysisResponse.status) })}
                     label={analysisResponse.status.toUpperCase()}
                     color={getStatusColor(analysisResponse.status)}
                     size="small"
@@ -231,7 +239,8 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
             onClick={handleStartAnalysis}
             variant="contained"
             startIcon={isStarting ? <CircularProgress size={16} /> : <PlayArrow />}
-            disabled={isStarting}
+            disabled={isStarting || hasRunningJob}
+            title={hasRunningJob ? 'Please wait for current analysis to complete' : undefined}
           >
             {isStarting ? 'Starting...' : 'Start Analysis'}
           </Button>

@@ -30,7 +30,6 @@ import {
 import {
   Refresh,
   Cancel,
-  Download,
   Visibility,
   Code,
   CheckCircle,
@@ -54,8 +53,7 @@ interface RepositoryAnalysisJobsProps {
 const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
   onNewAnalysis,
 }) => {
-  const { jobs, isLoading, error, refreshJobs, cancelJob } = useRepositoryAnalysis();
-  const [selectedJob, setSelectedJob] = useState<RepositoryAnalysisJob | null>(null);
+  const { jobs, isLoading, error, hasRunningJob, refreshJobs, cancelJob } = useRepositoryAnalysis();
   const [jobResults, setJobResults] = useState<RepositoryAnalysisResults | null>(null);
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
@@ -99,7 +97,7 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
       case AnalysisStatus.CANCELLED:
         return <Cancel />;
       default:
-        return null;
+        return undefined;
     }
   };
 
@@ -115,7 +113,6 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
       return;
     }
 
-    setSelectedJob(job);
     setLoadingResults(true);
     setResultsDialogOpen(true);
 
@@ -132,7 +129,6 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
 
   const handleCloseResultsDialog = () => {
     setResultsDialogOpen(false);
-    setSelectedJob(null);
     setJobResults(null);
   };
 
@@ -178,6 +174,8 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
               variant="contained"
               startIcon={<PlayArrow />}
               onClick={onNewAnalysis}
+              disabled={hasRunningJob}
+              title={hasRunningJob ? 'Please wait for current analysis to complete' : 'Start new analysis'}
             >
               New Analysis
             </Button>
@@ -200,89 +198,99 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
                 variant="contained"
                 startIcon={<PlayArrow />}
                 onClick={onNewAnalysis}
+                disabled={hasRunningJob}
+                title={hasRunningJob ? 'Please wait for current analysis to complete' : 'Start new analysis'}
               >
-                Start Analysis
+                Start Repo Analysis
               </Button>
             )}
           </CardContent>
         </Card>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Job ID</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Started</TableCell>
-                <TableCell>Completed</TableCell>
-                <TableCell>Message</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {jobs.map((job) => (
-                <TableRow key={job.job_id}>
-                  <TableCell>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {job.job_id.slice(0, 8)}...
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      icon={getStatusIcon(job.status)}
-                      label={job.status.toUpperCase()}
-                      color={getStatusColor(job.status)}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {formatDate(job.started_at)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {job.completed_at ? formatDate(job.completed_at) : '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ maxWidth: 200 }}>
-                      {job.error_message || job.message}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      {job.status === AnalysisStatus.COMPLETED && (
-                        <Tooltip title="View Results">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleViewResults(job)}
-                          >
-                            <Visibility />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      
-                      {(job.status === AnalysisStatus.PENDING ||
-                        job.status === AnalysisStatus.CLONING ||
-                        job.status === AnalysisStatus.RUNNING) && (
-                        <Tooltip title="Cancel Job">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleCancelJob(job.job_id)}
-                            color="error"
-                          >
-                            <Cancel />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </TableCell>
+        <Box>
+          {hasRunningJob && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Repository analysis in progress. New analysis will be available once current job completes.
+            </Alert>
+          )}
+          
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Job ID</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Started</TableCell>
+                  <TableCell>Completed</TableCell>
+                  <TableCell>Message</TableCell>
+                  <TableCell align="right">Actions</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {jobs.map((job) => (
+                  <TableRow key={job.job_id}>
+                    <TableCell>
+                      <Typography variant="body2" fontFamily="monospace">
+                        {job.job_id.slice(0, 8)}...
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        {...(getStatusIcon(job.status) && { icon: getStatusIcon(job.status) })}
+                        label={job.status.toUpperCase()}
+                        color={getStatusColor(job.status)}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {formatDate(job.started_at)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {job.completed_at ? formatDate(job.completed_at) : '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ maxWidth: 200 }}>
+                        {job.error_message || job.message}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {job.status === AnalysisStatus.COMPLETED && (
+                          <Tooltip title="View Results">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleViewResults(job)}
+                            >
+                              <Visibility />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        
+                        {(job.status === AnalysisStatus.PENDING ||
+                          job.status === AnalysisStatus.CLONING ||
+                          job.status === AnalysisStatus.RUNNING) && (
+                          <Tooltip title="Cancel Job">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleCancelJob(job.job_id)}
+                              color="error"
+                            >
+                              <Cancel />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
       )}
 
       {/* Results Dialog */}
@@ -314,8 +322,8 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
               <Typography variant="body1" gutterBottom>
                 <strong>Status:</strong>{' '}
                 <Chip
+                  {...(getStatusColor(jobResults.status) && { color: getStatusColor(jobResults.status) })}
                   label={jobResults.status.toUpperCase()}
-                  color={getStatusColor(jobResults.status)}
                   size="small"
                 />
               </Typography>

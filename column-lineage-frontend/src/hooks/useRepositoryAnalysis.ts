@@ -15,6 +15,7 @@ interface UseRepositoryAnalysisReturn {
   jobs: RepositoryAnalysisJob[];
   isLoading: boolean;
   error: string | null;
+  hasRunningJob: boolean;
   startAnalysis: () => Promise<RepositoryAnalysisResponse | null>;
   refreshJobs: () => Promise<void>;
   getJobStatus: (jobId: string) => Promise<RepositoryAnalysisJob | null>;
@@ -25,6 +26,13 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
   const [jobs, setJobs] = useState<RepositoryAnalysisJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Check if there's any running job
+  const hasRunningJob = jobs.some(job => 
+    job.status === AnalysisStatus.PENDING || 
+    job.status === AnalysisStatus.CLONING || 
+    job.status === AnalysisStatus.RUNNING
+  );
 
   const startAnalysis = useCallback(async (): Promise<RepositoryAnalysisResponse | null> => {
     setIsLoading(true);
@@ -122,6 +130,7 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
     jobs,
     isLoading,
     error,
+    hasRunningJob,
     startAnalysis,
     refreshJobs,
     getJobStatus,
