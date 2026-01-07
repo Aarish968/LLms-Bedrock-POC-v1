@@ -35,7 +35,6 @@ import {
   CheckCircle,
   Error as ErrorIcon,
   Schedule,
-  PlayArrow,
 } from '@mui/icons-material';
 
 import { useRepositoryAnalysis } from '../../hooks/useRepositoryAnalysis';
@@ -47,23 +46,34 @@ import {
 import { RepositoryAnalysisService } from '../../api/repositoryAnalysisService';
 
 interface RepositoryAnalysisJobsProps {
-  onNewAnalysis?: () => void;
+  onNewAnalysis?: () => void; // Made optional since we removed the button
 }
 
-const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
-  onNewAnalysis,
-}) => {
+const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = () => {
   const { jobs, isLoading, error, hasRunningJob, refreshJobs, cancelJob } = useRepositoryAnalysis();
   const [jobResults, setJobResults] = useState<RepositoryAnalysisResults | null>(null);
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
 
-  // Auto-refresh jobs every 10 seconds
+  // Smart polling - only poll when there are running jobs
   useEffect(() => {
-    refreshJobs();
-    const interval = setInterval(refreshJobs, 10000);
-    return () => clearInterval(interval);
-  }, [refreshJobs]);
+    refreshJobs(); // Initial load
+    
+    let interval: NodeJS.Timeout | null = null;
+    
+    // Only start polling if there are running jobs
+    if (hasRunningJob) {
+      interval = setInterval(() => {
+        refreshJobs();
+      }, 5000);
+    }
+    
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [refreshJobs, hasRunningJob]); // Re-run when hasRunningJob changes
 
   const getStatusColor = (status: AnalysisStatus) => {
     switch (status) {
@@ -120,7 +130,6 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
       const results = await RepositoryAnalysisService.getResults(job.job_id);
       setJobResults(results);
     } catch (err: any) {
-      console.error('Failed to load results:', err);
       setJobResults(null);
     } finally {
       setLoadingResults(false);
@@ -130,6 +139,10 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
   const handleCloseResultsDialog = () => {
     setResultsDialogOpen(false);
     setJobResults(null);
+  };
+
+  const handleManualRefresh = () => {
+    refreshJobs();
   };
 
   const formatDate = (dateString: string) => {
@@ -160,27 +173,14 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
             Repository Analysis Jobs
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<Refresh />}
-            onClick={refreshJobs}
-            disabled={isLoading}
-          >
-            Refresh
-          </Button>
-          {onNewAnalysis && (
-            <Button
-              variant="contained"
-              startIcon={<PlayArrow />}
-              onClick={onNewAnalysis}
-              disabled={hasRunningJob}
-              title={hasRunningJob ? 'Please wait for current analysis to complete' : 'Start new analysis'}
-            >
-              New Analysis
-            </Button>
-          )}
-        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<Refresh />}
+          onClick={handleManualRefresh}
+          disabled={isLoading}
+        >
+          Refresh
+        </Button>
       </Box>
 
       {jobs.length === 0 ? (
@@ -191,19 +191,8 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
               No Repository Analysis Jobs
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Start your first repository analysis to see jobs here.
+              Use the "Start Action To Endpoint Lineage" button from the Column Lineage tab to start your first analysis.
             </Typography>
-            {onNewAnalysis && (
-              <Button
-                variant="contained"
-                startIcon={<PlayArrow />}
-                onClick={onNewAnalysis}
-                disabled={hasRunningJob}
-                title={hasRunningJob ? 'Please wait for current analysis to complete' : 'Start new analysis'}
-              >
-                Start Repo Analysis
-              </Button>
-            )}
           </CardContent>
         </Card>
       ) : (

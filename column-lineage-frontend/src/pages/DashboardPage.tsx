@@ -20,7 +20,7 @@ import JobsDashboard from '../components/LineageAnalysis/JobsDashboard'
 import { RepositoryAnalysisDialog, RepositoryAnalysisJobs } from '../components/RepositoryAnalysis'
 import useUserContext from '@/hooks/users/useUserContext'
 import useRepositoryAnalysis from '../hooks/useRepositoryAnalysis'
-import { RepositoryAnalysisResponse } from '../types/repositoryAnalysis'
+import { RepositoryAnalysisResponse, RepositoryAnalysisJob, AnalysisStatus } from '../types/repositoryAnalysis'
 
 const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
@@ -29,7 +29,7 @@ const DashboardPage = () => {
   const [currentTab, setCurrentTab] = useState(0)
   const [analysisJobsSubTab, setAnalysisJobsSubTab] = useState(0)
   const user = useUserContext()
-  const { hasRunningJob: hasRunningRepoJob } = useRepositoryAnalysis()
+  const { hasRunningJob: hasRunningRepoJob, addJobToState } = useRepositoryAnalysis()
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
@@ -42,7 +42,6 @@ const DashboardPage = () => {
   const handleStartRepoAnalysis = () => {
     if (hasRunningRepoJob) {
       // Show warning but still allow opening dialog for better UX
-      console.warn('There is already a running repository analysis job');
     }
     setRepoAnalysisDialogOpen(true)
   }
@@ -55,11 +54,21 @@ const DashboardPage = () => {
   }
 
   const handleRepoAnalysisStarted = (response: RepositoryAnalysisResponse) => {
+    // Immediately add job to state for instant UI feedback
+    const newJob: RepositoryAnalysisJob = {
+      job_id: response.job_id,
+      status: response.status as AnalysisStatus,
+      message: response.message,
+      output_file: response.output_file,
+      started_at: response.started_at,
+    };
+    
+    addJobToState(newJob);
+    
     // Switch to Analysis Jobs tab and Repository Analyze Job sub-tab when repo analysis starts
     setCurrentTab(1)
     setAnalysisJobsSubTab(1)
     setRepoAnalysisDialogOpen(false)
-    console.log('Repository analysis started:', response)
   }
 
   const handleCloseAnalysisDialog = () => {
@@ -239,7 +248,7 @@ const DashboardPage = () => {
               )}
 
               {analysisJobsSubTab === 1 && (
-                <RepositoryAnalysisJobs onNewAnalysis={handleStartRepoAnalysis} />
+                <RepositoryAnalysisJobs />
               )}
             </Box>
           )}

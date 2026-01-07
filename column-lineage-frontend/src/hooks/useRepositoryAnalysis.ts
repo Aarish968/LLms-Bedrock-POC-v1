@@ -3,13 +3,22 @@
  * Custom hook for managing repository analysis state and operations
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { RepositoryAnalysisService } from '../api/repositoryAnalysisService';
 import {
   RepositoryAnalysisJob,
   RepositoryAnalysisResponse,
   AnalysisStatus,
 } from '../types/repositoryAnalysis';
+
+// Global state to share between hook instances
+let globalJobs: RepositoryAnalysisJob[] = [];
+let globalJobsListeners: Set<(jobs: RepositoryAnalysisJob[]) => void> = new Set();
+
+const notifyJobsListeners = (jobs: RepositoryAnalysisJob[]) => {
+  globalJobs = jobs;
+  globalJobsListeners.forEach(listener => listener(jobs));
+};
 
 interface UseRepositoryAnalysisReturn {
   jobs: RepositoryAnalysisJob[];
@@ -20,12 +29,26 @@ interface UseRepositoryAnalysisReturn {
   refreshJobs: () => Promise<void>;
   getJobStatus: (jobId: string) => Promise<RepositoryAnalysisJob | null>;
   cancelJob: (jobId: string) => Promise<boolean>;
+  addJobToState: (job: RepositoryAnalysisJob) => void;
 }
 
 export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
-  const [jobs, setJobs] = useState<RepositoryAnalysisJob[]>([]);
+  const [jobs, setJobs] = useState<RepositoryAnalysisJob[]>(globalJobs);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Subscribe to global jobs changes
+  useEffect(() => {
+    const listener = (newJobs: RepositoryAnalysisJob[]) => {
+      setJobs(newJobs);
+    };
+    
+    globalJobsListeners.add(listener);
+    
+    return () => {
+      globalJobsListeners.delete(listener);
+    };
+  }, []);
 
   // Check if there's any running job
   const hasRunningJob = jobs.some(job => 
@@ -34,45 +57,14 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
     job.status === AnalysisStatus.RUNNING
   );
 
-  const startAnalysis = useCallback(async (): Promise<RepositoryAnalysisResponse | null> => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await RepositoryAnalysisService.startAnalysis({
-        async_processing: true,
-      });
-
-      // Add the new job to the jobs list
-      const newJob: RepositoryAnalysisJob = {
-        job_id: response.job_id,
-        status: response.status,
-        message: response.message,
-        output_file: response.output_file,
-        started_at: response.started_at,
-      };
-
-      setJobs(prevJobs => [newJob, ...prevJobs]);
-      return response;
-
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start analysis';
-      setError(errorMessage);
-      console.error('Failed to start repository analysis:', err);
-      return null;
-
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // Define refreshJobs first
   const refreshJobs = useCallback(async (): Promise<void> => {
     setIsLoading(true);
     setError(null);
 
     try {
       const jobsList = await RepositoryAnalysisService.listJobs(50, 0);
-      setJobs(jobsList);
+      notifyJobsListeners(jobsList);
 
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch jobs';
@@ -84,16 +76,54 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
     }
   }, []);
 
+  const startAnalysis = useCallback(async (): Promise<RepositoryAnalysisResponse | null> => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await RepositoryAnalysisService.startAnalysis({
+        async_processing: true,
+      });
+
+      // Immediately add the new job to global state for instant UI feedback
+      const newJob: RepositoryAnalysisJob = {
+        job_id: response.job_id,
+        status: response.status,
+        message: response.message,
+        output_file: response.output_file,
+        started_at: response.started_at,
+      };
+
+      const updatedJobs = [newJob, ...globalJobs];
+      notifyJobsListeners(updatedJobs);
+      
+      // Force a refresh after a short delay to ensure consistency
+      setTimeout(() => {
+        refreshJobs();
+      }, 1000);
+      
+      return response;
+
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start analysis';
+      setError(errorMessage);
+      console.error('Failed to start repository analysis:', err);
+      return null;
+
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshJobs]);
+
   const getJobStatus = useCallback(async (jobId: string): Promise<RepositoryAnalysisJob | null> => {
     try {
       const job = await RepositoryAnalysisService.getJobStatus(jobId);
       
-      // Update the job in the jobs list
-      setJobs(prevJobs => 
-        prevJobs.map(prevJob => 
-          prevJob.job_id === jobId ? job : prevJob
-        )
+      // Update the job in global state
+      const updatedJobs = globalJobs.map(prevJob => 
+        prevJob.job_id === jobId ? job : prevJob
       );
+      notifyJobsListeners(updatedJobs);
 
       return job;
 
@@ -107,14 +137,13 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
     try {
       await RepositoryAnalysisService.cancelJob(jobId);
       
-      // Update the job status in the jobs list
-      setJobs(prevJobs => 
-        prevJobs.map(job => 
-          job.job_id === jobId 
-            ? { ...job, status: AnalysisStatus.CANCELLED, message: 'Job cancelled' }
-            : job
-        )
+      // Update the job status in global state
+      const updatedJobs = globalJobs.map(job => 
+        job.job_id === jobId 
+          ? { ...job, status: AnalysisStatus.CANCELLED, message: 'Job cancelled' }
+          : job
       );
+      notifyJobsListeners(updatedJobs);
 
       return true;
 
@@ -126,6 +155,21 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
     }
   }, []);
 
+  const addJobToState = useCallback((job: RepositoryAnalysisJob) => {
+    // Check if job already exists to avoid duplicates
+    const existingJobIndex = globalJobs.findIndex(existingJob => existingJob.job_id === job.job_id);
+    let updatedJobs: RepositoryAnalysisJob[];
+    
+    if (existingJobIndex >= 0) {
+      updatedJobs = [...globalJobs];
+      updatedJobs[existingJobIndex] = job;
+    } else {
+      updatedJobs = [job, ...globalJobs];
+    }
+    
+    notifyJobsListeners(updatedJobs);
+  }, []);
+
   return {
     jobs,
     isLoading,
@@ -135,6 +179,7 @@ export const useRepositoryAnalysis = (): UseRepositoryAnalysisReturn => {
     refreshJobs,
     getJobStatus,
     cancelJob,
+    addJobToState,
   };
 };
 

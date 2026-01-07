@@ -15,7 +15,6 @@ import {
   CircularProgress,
   Alert,
   Chip,
-  Divider,
   LinearProgress,
 } from '@mui/material';
 import {
@@ -34,7 +33,6 @@ import {
   RepositoryAnalysisJob,
   AnalysisStatus,
 } from '../../types/repositoryAnalysis';
-import RepositoryDebugInfo from './RepositoryDebugInfo';
 
 interface RepositoryAnalysisDialogProps {
   open: boolean;
@@ -52,10 +50,9 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
-  const { hasRunningJob } = useRepositoryAnalysis();
+  const { hasRunningJob, startAnalysis } = useRepositoryAnalysis();
 
   // Derived states
-  const isAnalysisRunning = isStarting;
   const isJobRunning = jobStatus?.status === AnalysisStatus.PENDING || 
                       jobStatus?.status === AnalysisStatus.CLONING || 
                       jobStatus?.status === AnalysisStatus.RUNNING;
@@ -68,9 +65,12 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
     setError(null);
 
     try {
-      const response = await RepositoryAnalysisService.startAnalysis({
-        async_processing: true,
-      });
+      // Use hook's startAnalysis method which handles immediate state update
+      const response = await startAnalysis();
+      
+      if (!response) {
+        throw new Error('Failed to start analysis');
+      }
 
       setCurrentJobId(response.job_id);
       setJobStatus({
@@ -81,7 +81,7 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
         started_at: response.started_at,
       });
       
-      // Notify parent component
+      // Notify parent component immediately for instant redirect
       if (onAnalysisStarted) {
         onAnalysisStarted(response);
       }
@@ -92,13 +92,12 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
       // Start polling for job status
       pollJobStatus(response.job_id);
 
-      // Auto-close dialog after 2 seconds to redirect to jobs section
+      // Auto-close dialog after 1 second for faster redirect
       setTimeout(() => {
         handleClose();
-      }, 2000);
+      }, 1000);
 
     } catch (err: any) {
-      console.error('Failed to start repository analysis:', err);
       setError(
         err.response?.data?.detail || 
         err.message || 
@@ -121,22 +120,16 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
         setTimeout(() => pollJobStatus(jobId), 2000);
       }
     } catch (err) {
-      console.error('Failed to get job status:', err);
       // Continue polling even if there's an error
       setTimeout(() => pollJobStatus(jobId), 5000);
     }
   };
 
-  const handleViewResults = async () => {
-    if (!currentJobId) return;
-
-    try {
-      const results = await RepositoryAnalysisService.getResults(currentJobId);
-      // Just log results, don't show them in the dialog
-      console.log('Repository analysis results:', results);
-    } catch (err) {
-      console.error('Failed to load results:', err);
-    }
+  const resetWorkflow = () => {
+    setCurrentJobId(null);
+    setJobStatus(null);
+    setError(null);
+    setIsRedirecting(false);
   };
 
   const handleClose = () => {
@@ -146,13 +139,6 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
     }
     resetWorkflow();
     onClose();
-  };
-
-  const resetWorkflow = () => {
-    setCurrentJobId(null);
-    setJobStatus(null);
-    setError(null);
-    setIsRedirecting(false);
   };
 
   const handleNewAnalysis = () => {
@@ -245,15 +231,6 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
       </DialogTitle>
 
       <DialogContent>
-        {/* Debug Info */}
-        <RepositoryDebugInfo
-          currentJobId={currentJobId}
-          jobStatus={jobStatus}
-          isAnalysisRunning={isAnalysisRunning}
-          isJobRunning={isJobRunning}
-          isJobCompleted={isJobCompleted}
-        />
-
         <Box sx={{ py: 1 }}>
           {!currentJobId ? (
             // Configuration Phase
