@@ -1,6 +1,7 @@
 """Repository analysis service."""
 
 import asyncio
+import csv
 import os
 import shutil
 import sys
@@ -11,6 +12,7 @@ from uuid import UUID
 
 from api.core.logging import get_logger
 from api.core.repo_analysis.repository_cloning_service import RepositoryCloningService
+from api.dependencies.database import DatabaseManager
 from api.v1.models.repository_analysis import (
     AnalysisStatus,
     RepositoryAnalysisJob,
@@ -39,6 +41,9 @@ class RepositoryAnalysisService:
         # Default repository names from environment variables
         self.default_frontend_repo = os.getenv("DEFAULT_FRONTEND_REPO", "guided-workflow")
         self.default_backend_repo = os.getenv("DEFAULT_BACKEND_REPO", "guided-workflow-backend")
+        
+        # Initialize database manager
+        self.db_manager = DatabaseManager()
         
         logger.info(f"Default repositories configured - Frontend: {self.default_frontend_repo}, Backend: {self.default_backend_repo}")
     
@@ -335,12 +340,23 @@ class RepositoryAnalysisService:
             )
             
             if success:
-                # Success
-                logger.info("Repository analysis completed successfully", job_id=str(job_id))
+                # Success - now insert data into database
+                logger.info("Repository analysis completed successfully, inserting data to database", job_id=str(job_id))
+                
+                # Insert CSV data into database
+                db_success = self._insert_csv_data_to_database(str(output_path), job_id)
+                
+                if db_success:
+                    logger.info("Data successfully inserted into ACTION_TO_ENDPOINTS_TABLES_MAPPING table", job_id=str(job_id))
+                    message = "Analysis completed successfully and data inserted into database"
+                else:
+                    logger.warning("Analysis completed but database insertion failed", job_id=str(job_id))
+                    message = "Analysis completed successfully but database insertion failed"
+                
                 self.update_job(
                     job_id,
                     status=AnalysisStatus.COMPLETED,
-                    message="Analysis completed successfully",
+                    message=message,
                     output_file=str(output_path),
                     completed_at=datetime.now(),
                 )
@@ -418,3 +434,299 @@ class RepositoryAnalysisService:
                     # or implement a more sophisticated cleanup strategy
         except Exception as e:
             logger.warning(f"Failed to cleanup repositories for job {job_id}: {e}")
+    
+    def _check_and_create_table(self) -> bool:
+        """Check if ACTION_TO_ENDPOINTS_TABLES_MAPPING table exists, create if not."""
+        try:
+            # Check if table exists
+            check_table_query = """
+            SELECT COUNT(*) as table_count
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_SCHEMA = 'CPS_DSCI_BR' 
+            AND TABLE_NAME = 'ACTION_TO_ENDPOINTS_TABLES_MAPPING'
+            AND TABLE_CATALOG = 'CPS_DB'
+            """
+            
+            result = self.db_manager.execute_query(check_table_query)
+            table_exists = result[0][0] > 0 if result else False
+            
+            if not table_exists:
+                logger.info("Table ACTION_TO_ENDPOINTS_TABLES_MAPPING does not exist, creating it...")
+                
+                # Create table with your DDL including new timestamp columns and larger VARCHAR sizes
+                create_table_query = """
+                CREATE OR REPLACE TABLE CPS_DB.CPS_DSCI_BR.ACTION_TO_ENDPOINTS_TABLES_MAPPING (
+                    FRONTEND_FILE VARCHAR(200),
+                    FRONTEND_FUNCTION VARCHAR(200),
+                    HTTP_METHOD VARCHAR(20),
+                    FRONTEND_URL VARCHAR(1000),
+                    BACKEND_FILE VARCHAR(200),
+                    BACKEND_FUNCTION VARCHAR(200),
+                    BACKEND_ROUTE VARCHAR(1000),
+                    DATABASE_TABLES VARCHAR(16777216),
+                    STORED_PROCEDURES VARCHAR(16777216),
+                    FLOW_CALLS VARCHAR(16777216),
+                    RESPONSE_MODEL VARCHAR(1000),
+                    RESPONSE_FIELDS VARCHAR(16777216),
+                    NESTED_FIELDS VARCHAR(16777216),
+                    TABLE_COLUMN_DETAILS VARCHAR(16777216),
+                    ANALYSIS_TIMESTAMP TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP(),
+                    CREATED_AT TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP()
+                )
+                """
+                
+                self.db_manager.execute_query(create_table_query)
+                logger.info("Table ACTION_TO_ENDPOINTS_TABLES_MAPPING created successfully")
+            else:
+                logger.info("Table ACTION_TO_ENDPOINTS_TABLES_MAPPING already exists")
+                
+                # Truncate existing data
+                truncate_query = "TRUNCATE TABLE CPS_DB.CPS_DSCI_BR.ACTION_TO_ENDPOINTS_TABLES_MAPPING"
+                self.db_manager.execute_query(truncate_query)
+                logger.info("Table ACTION_TO_ENDPOINTS_TABLES_MAPPING truncated successfully")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to check/create table: {e}")
+            return False
+    
+    def _insert_csv_data_to_database(self, csv_file_path: str, job_id: UUID) -> bool:
+        """Insert CSV data into ACTION_TO_ENDPOINTS_TABLES_MAPPING table."""
+        try:
+            logger.info(f"Starting to insert CSV data to database", job_id=str(job_id), csv_file=csv_file_path)
+            
+            # Check if CSV file exists
+            if not Path(csv_file_path).exists():
+                logger.error(f"CSV file not found: {csv_file_path}")
+                return False
+            
+            # Check and create table if needed
+            if not self._check_and_create_table():
+                logger.error("Failed to ensure table exists")
+                return False
+            
+            # Try direct CSV loading first (more efficient for large datasets)
+            if self._try_direct_csv_load(csv_file_path, job_id):
+                logger.info("Successfully loaded data using direct CSV method")
+                return True
+            
+            # Fallback to row-by-row insertion
+            logger.info("Direct CSV load failed, falling back to row-by-row insertion")
+            return self._insert_csv_row_by_row(csv_file_path, job_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to insert CSV data to database: {e}")
+            return False
+    
+    def _try_direct_csv_load(self, csv_file_path: str, job_id: UUID) -> bool:
+        """Try to load CSV directly using Snowflake's COPY INTO command."""
+        try:
+            # This is a more advanced approach that would require staging the file
+            # For now, we'll skip this and use the row-by-row approach
+            logger.info("Direct CSV load not implemented, using row-by-row insertion")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Direct CSV load failed: {e}")
+            return False
+    
+    def _insert_csv_row_by_row(self, csv_file_path: str, job_id: UUID) -> bool:
+        """Insert CSV data row by row (fallback method)."""
+        try:
+            # Read CSV and prepare batch insert data
+            insert_data = []
+            total_csv_rows = 0
+            skipped_rows = []
+            
+            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                # Detect delimiter
+                sample = csvfile.read(1024)
+                csvfile.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                
+                reader = csv.DictReader(csvfile, delimiter=delimiter)
+                
+                # Process each row and collect data
+                for row_num, row in enumerate(reader, 1):
+                    total_csv_rows += 1
+                    try:
+                        # Check if row has essential data
+                        frontend_file = self._get_csv_value(row, ['Frontend_File', 'Frontend File', 'FRONTEND_FILE'])
+                        frontend_function = self._get_csv_value(row, ['Frontend_Function', 'Frontend Function', 'FRONTEND_FUNCTION'])
+                        
+                        # Skip rows that don't have essential data
+                        if not frontend_file and not frontend_function:
+                            skipped_rows.append({
+                                'row_number': row_num,
+                                'reason': 'Missing essential data (frontend_file and frontend_function)',
+                                'data': dict(row)
+                            })
+                            logger.warning(f"Skipping row {row_num}: Missing essential data")
+                            continue
+                        
+                        # Map CSV columns to database columns (handle different possible column names)
+                        row_data = {
+                            'frontend_file': frontend_file,
+                            'frontend_function': frontend_function,
+                            'http_method': self._get_csv_value(row, ['HTTP_Method', 'HTTP Method', 'HTTP_METHOD']),
+                            'frontend_url': self._get_csv_value(row, ['Frontend_URL', 'Frontend URL', 'FRONTEND_URL']),
+                            'backend_file': self._get_csv_value(row, ['Backend_File', 'Backend File', 'BACKEND_FILE']),
+                            'backend_function': self._get_csv_value(row, ['Backend_Function', 'Backend Function', 'BACKEND_FUNCTION']),
+                            'backend_route': self._get_csv_value(row, ['Backend_Route', 'Backend Route', 'BACKEND_ROUTE']),
+                            'database_tables': self._get_csv_value(row, ['Database_Tables', 'Database Tables', 'DATABASE_TABLES']),
+                            'stored_procedures': self._get_csv_value(row, ['Stored_Procedures', 'Stored Procedures', 'STORED_PROCEDURES']),
+                            'flow_calls': self._get_csv_value(row, ['Flow_Calls', 'Flow Calls', 'FLOW_CALLS']),
+                            'response_model': self._get_csv_value(row, ['Response_Model', 'Response Model', 'RESPONSE_MODEL']),
+                            'response_fields': self._get_csv_value(row, ['Response_Fields', 'Response Fields', 'RESPONSE_FIELDS']),
+                            'nested_fields': self._get_csv_value(row, ['Nested_Fields', 'Nested Fields', 'NESTED_FIELDS']),
+                            'table_column_details': self._get_csv_value(row, ['Table_Column_Details', 'Table Column Details', 'TABLE_COLUMN_DETAILS'])
+                        }
+                        insert_data.append(row_data)
+                        
+                    except Exception as row_error:
+                        skipped_rows.append({
+                            'row_number': row_num,
+                            'reason': f'Processing error: {row_error}',
+                            'data': dict(row)
+                        })
+                        logger.warning(f"Failed to process row {row_num}: {row_error}, row data: {row}")
+                        continue
+            
+            # Log CSV processing summary
+            logger.info(f"CSV processing summary - Total rows: {total_csv_rows}, Processed: {len(insert_data)}, Skipped: {len(skipped_rows)}")
+            
+            if skipped_rows:
+                logger.warning(f"Skipped {len(skipped_rows)} rows during CSV processing:")
+                for skipped in skipped_rows:
+                    logger.warning(f"  Row {skipped['row_number']}: {skipped['reason']}")
+                    logger.debug(f"    Data: {skipped['data']}")
+            
+            # Insert data using the improved batch method
+            inserted_count = self._batch_insert_data(insert_data)
+            
+            # Final summary
+            logger.info(f"Final summary - CSV rows: {total_csv_rows}, Processed for insertion: {len(insert_data)}, Successfully inserted: {inserted_count}, Failed insertions: {len(insert_data) - inserted_count}")
+            
+            return inserted_count > 0
+            
+        except Exception as e:
+            logger.error(f"Failed to insert CSV data row by row: {e}")
+            return False
+    
+    def _batch_insert_data(self, insert_data: list) -> int:
+        """Insert data in batches using individual INSERT statements to handle large data."""
+        try:
+            if not insert_data:
+                logger.info("No data to insert")
+                return 0
+            
+            # Use smaller batch size and individual INSERTs to handle large data
+            batch_size = 10  # Reduced batch size for large data
+            total_inserted = 0
+            failed_rows = []
+            
+            # Generate current timestamp for all records
+            from datetime import datetime
+            current_timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # Format with milliseconds
+            
+            logger.info(f"Starting to insert {len(insert_data)} rows in batches of {batch_size}")
+            
+            for i in range(0, len(insert_data), batch_size):
+                batch = insert_data[i:i + batch_size]
+                
+                # Insert each row individually to avoid query size limits
+                for row_index, row in enumerate(batch):
+                    global_row_num = i + row_index + 1
+                    try:
+                        # Escape single quotes in values and handle large text
+                        def escape_value(value):
+                            if value is None or value == '':
+                                return "NULL"
+                            # Convert to string and escape single quotes and backslashes
+                            escaped = str(value).replace("'", "''").replace("\\", "\\\\")
+                            return f"'{escaped}'"
+                        
+                        # Log the row being processed for debugging
+                        logger.debug(f"Processing row {global_row_num}: {row.get('frontend_file', 'unknown')} - {row.get('frontend_function', 'unknown')}")
+                        
+                        # Build individual INSERT statement
+                        insert_sql = f"""
+                        INSERT INTO CPS_DB.CPS_DSCI_BR.ACTION_TO_ENDPOINTS_TABLES_MAPPING 
+                        (FRONTEND_FILE, FRONTEND_FUNCTION, HTTP_METHOD, FRONTEND_URL, BACKEND_FILE, BACKEND_FUNCTION, BACKEND_ROUTE, DATABASE_TABLES, STORED_PROCEDURES, FLOW_CALLS, RESPONSE_MODEL, RESPONSE_FIELDS, NESTED_FIELDS, TABLE_COLUMN_DETAILS, ANALYSIS_TIMESTAMP, CREATED_AT)
+                        VALUES (
+                            {escape_value(row['frontend_file'])}, 
+                            {escape_value(row['frontend_function'])}, 
+                            {escape_value(row['http_method'])}, 
+                            {escape_value(row['frontend_url'])}, 
+                            {escape_value(row['backend_file'])}, 
+                            {escape_value(row['backend_function'])}, 
+                            {escape_value(row['backend_route'])}, 
+                            {escape_value(row['database_tables'])}, 
+                            {escape_value(row['stored_procedures'])}, 
+                            {escape_value(row['flow_calls'])}, 
+                            {escape_value(row['response_model'])}, 
+                            {escape_value(row['response_fields'])}, 
+                            {escape_value(row['nested_fields'])}, 
+                            {escape_value(row['table_column_details'])}, 
+                            '{current_timestamp}', 
+                            '{current_timestamp}'
+                        )
+                        """
+                        
+                        self.db_manager.execute_query(insert_sql)
+                        total_inserted += 1
+                        
+                        # Log progress every 10 rows
+                        if total_inserted % 10 == 0:
+                            logger.info(f"Inserted {total_inserted} rows so far...")
+                        
+                    except Exception as row_error:
+                        failed_rows.append({
+                            'row_number': global_row_num,
+                            'error': str(row_error),
+                            'data': row
+                        })
+                        logger.error(f"❌ FAILED to insert row {global_row_num}: {row_error}")
+                        # Log the specific row data that failed with more detail
+                        logger.error(f"   Frontend_File: {row.get('frontend_file', 'N/A')}")
+                        logger.error(f"   Frontend_Function: {row.get('frontend_function', 'N/A')}")
+                        logger.error(f"   HTTP_Method: {row.get('http_method', 'N/A')}")
+                        logger.error(f"   Backend_Route: {row.get('backend_route', 'N/A')}")
+                        
+                        # Check for potential issues
+                        for key, value in row.items():
+                            if value and len(str(value)) > 1000:
+                                logger.error(f"   Large field {key}: {len(str(value))} characters")
+                            if value and ("'" in str(value)):
+                                quote_count = str(value).count("'")
+                                if quote_count > 5:
+                                    logger.error(f"   Many quotes in {key}: {quote_count} quotes")
+                        
+                        continue
+                
+                logger.debug(f"Completed batch {i//batch_size + 1}")
+            
+            # Log summary of results
+            logger.info(f"Batch insert completed - Total inserted: {total_inserted}, Failed: {len(failed_rows)}")
+            
+            if failed_rows:
+                logger.warning(f"Failed to insert {len(failed_rows)} rows:")
+                for failed_row in failed_rows:
+                    logger.warning(f"  Row {failed_row['row_number']}: {failed_row['error']}")
+                    logger.debug(f"    Data: {failed_row['data']}")
+            
+            return total_inserted
+            
+        except Exception as e:
+            logger.error(f"Failed to batch insert data: {e}")
+            return total_inserted  # Return what we managed to insert
+    
+    def _get_csv_value(self, row: dict, possible_keys: list) -> str:
+        """Get value from CSV row using possible column name variations."""
+        for key in possible_keys:
+            if key in row:
+                value = row[key]
+                return value if value is not None else ""
+        return ""
