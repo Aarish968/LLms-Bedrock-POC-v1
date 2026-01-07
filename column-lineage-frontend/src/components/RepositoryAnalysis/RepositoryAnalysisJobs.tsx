@@ -346,18 +346,6 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({
           <Button onClick={handleCloseResultsDialog}>
             Close
           </Button>
-          {jobResults && (
-            <Button
-              variant="contained"
-              startIcon={<Download />}
-              onClick={() => {
-                // TODO: Implement download functionality
-                console.log('Download results:', jobResults.output_file);
-              }}
-            >
-              Download
-            </Button>
-          )}
         </DialogActions>
       </Dialog>
     </Box>
