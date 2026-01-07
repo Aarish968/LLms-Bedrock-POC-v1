@@ -27,6 +27,7 @@ const DashboardPage = () => {
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
   const [repoAnalysisDialogOpen, setRepoAnalysisDialogOpen] = useState(false)
   const [currentTab, setCurrentTab] = useState(0)
+  const [analysisJobsSubTab, setAnalysisJobsSubTab] = useState(0)
   const user = useUserContext()
   const { hasRunningJob: hasRunningRepoJob } = useRepositoryAnalysis()
 
@@ -47,14 +48,16 @@ const DashboardPage = () => {
   }
 
   const handleAnalysisStarted = () => {
-    // Switch to Analysis Jobs tab when analysis starts
+    // Switch to Analysis Jobs tab and Column Lineage sub-tab when analysis starts
     setCurrentTab(1)
+    setAnalysisJobsSubTab(0)
     setAnalysisDialogOpen(false)
   }
 
   const handleRepoAnalysisStarted = (response: RepositoryAnalysisResponse) => {
-    // Switch to Repository Analysis Jobs tab when repo analysis starts
-    setCurrentTab(2)
+    // Switch to Analysis Jobs tab and Repository Analyze Job sub-tab when repo analysis starts
+    setCurrentTab(1)
+    setAnalysisJobsSubTab(1)
     setRepoAnalysisDialogOpen(false)
     console.log('Repository analysis started:', response)
   }
@@ -69,6 +72,10 @@ const DashboardPage = () => {
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setCurrentTab(newValue)
+  }
+
+  const handleAnalysisJobsSubTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setAnalysisJobsSubTab(newValue)
   }
 
   return (
@@ -136,12 +143,7 @@ const DashboardPage = () => {
             />
             <Tab 
               icon={<Work />} 
-              label="Analysis Jobs" 
-              iconPosition="start"
-            />
-            <Tab 
-              icon={<Code />} 
-              label="Repository Analysis Jobs" 
+              label="ANALYSIS JOBS" 
               iconPosition="start"
             />
           </Tabs>
@@ -195,17 +197,16 @@ const DashboardPage = () => {
                   <Button
                     variant="contained"
                     size="large"
-                    startIcon={<Code />}
+                    startIcon={<PlayArrow />}
                     onClick={handleStartRepoAnalysis}
-                    color="secondary"
                     disabled={hasRunningRepoJob}
                     title={hasRunningRepoJob ? 'Please wait for current repository analysis to complete' : 'Start repository analysis'}
                     sx={{ mb: 1 }}
                   >
-                    Start to Repo Analyze
+                    Start Action To Endpoint Lineage
                   </Button>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Analyze repository structure & dependencies
+                    Analyze action to endpoint analysis
                   </Typography>
                 </Box>
               </Box>
@@ -213,13 +214,34 @@ const DashboardPage = () => {
           )}
 
           {currentTab === 1 && (
-            <JobsDashboard 
-              onNewAnalysis={handleStartAnalysis}
-            />
-          )}
+            <Box>
+              {/* Sub-tabs for Analysis Jobs */}
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                <Tabs value={analysisJobsSubTab} onChange={handleAnalysisJobsSubTabChange}>
+                  <Tab 
+                    icon={<Work />} 
+                    label="Column Lineage" 
+                    iconPosition="start"
+                  />
+                  <Tab 
+                    icon={<Code />} 
+                    label="Repository Analyze Job" 
+                    iconPosition="start"
+                  />
+                </Tabs>
+              </Box>
 
-          {currentTab === 2 && (
-            <RepositoryAnalysisJobs onNewAnalysis={handleStartRepoAnalysis} />
+              {/* Sub-tab content */}
+              {analysisJobsSubTab === 0 && (
+                <JobsDashboard 
+                  onNewAnalysis={handleStartAnalysis}
+                />
+              )}
+
+              {analysisJobsSubTab === 1 && (
+                <RepositoryAnalysisJobs onNewAnalysis={handleStartRepoAnalysis} />
+              )}
+            </Box>
           )}
         </CardContent>
       </Card>

@@ -623,7 +623,7 @@ class RepositoryAnalysisService:
                 return 0
             
             # Use smaller batch size and individual INSERTs to handle large data
-            batch_size = 10  # Reduced batch size for large data
+            batch_size = 100  # Reduced batch size for large data
             total_inserted = 0
             failed_rows = []
             

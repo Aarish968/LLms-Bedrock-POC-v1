@@ -23,6 +23,7 @@ interface LineageAnalysisDialogProps {
 }
 
 const LineageAnalysisDialog: React.FC<LineageAnalysisDialogProps> = ({ open, onClose, onAnalysisStarted }) => {
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const {
     currentJobId,
     showResults,
@@ -49,6 +50,16 @@ const LineageAnalysisDialog: React.FC<LineageAnalysisDialogProps> = ({ open, onC
     if (onAnalysisStarted) {
       onAnalysisStarted();
     }
+
+    // Show redirect message
+    setIsRedirecting(true);
+
+    // Auto-close dialog after 2 seconds to redirect to jobs section
+    setTimeout(() => {
+      resetWorkflow();
+      setIsRedirecting(false);
+      onClose();
+    }, 2000);
   };
 
   const handleClose = () => {
@@ -188,6 +199,12 @@ const LineageAnalysisDialog: React.FC<LineageAnalysisDialogProps> = ({ open, onC
               {isJobCompleted && (
                 <Alert severity="success" sx={{ mt: 2 }}>
                   Analysis completed successfully! Found {jobStatus?.results_count} lineage relationships.
+                </Alert>
+              )}
+
+              {isRedirecting && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  Analysis started successfully! Redirecting to Column Lineage jobs section...
                 </Alert>
               )}
             </Box>
