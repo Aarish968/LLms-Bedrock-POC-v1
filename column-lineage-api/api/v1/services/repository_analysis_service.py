@@ -18,6 +18,7 @@ from api.v1.models.repository_analysis import (
     RepositoryAnalysisJob,
     RepositoryAnalysisRequest,
 )
+from api.v1.services.direct_analysis_runner import DirectAnalysisRunner
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,9 @@ class RepositoryAnalysisService:
         
         # Initialize database manager
         self.db_manager = DatabaseManager()
+        
+        # Initialize direct analysis runner as fallback
+        self.direct_runner = DirectAnalysisRunner()
         
         logger.info(f"Default repositories configured - Frontend: {self.default_frontend_repo}, Backend: {self.default_backend_repo}")
     
@@ -138,7 +142,7 @@ class RepositoryAnalysisService:
         output_file: str,
         job_id: UUID
     ) -> bool:
-        """Run the main.py analysis script on the cloned repositories."""
+        """Run the main.py analysis script on the cloned repositories with comprehensive error handling."""
         try:
             logger.info(f"Running main.py analysis script", job_id=str(job_id))
             
@@ -163,136 +167,193 @@ class RepositoryAnalysisService:
             # Parse the output file path
             output_path = Path(output_file)
             output_base = output_path.stem  # Get filename without extension
-            output_dir = output_path.parent
             
-            # Prepare command arguments with the actual cloned repository paths
-            cmd_args = [
-                "python", str(main_script_path),
-                "--frontend", str(Path(frontend_path).absolute()),
-                "--backend", str(Path(backend_path).absolute()),
-                "--output", output_base,  # Pass just the base name to the script
+            # Try multiple Python executables in order of preference
+            python_executables = [
+                sys.executable,  # Current Python interpreter
+                "python",        # System Python
+                "python3",       # Python 3
             ]
             
-            logger.info(f"Executing main.py command: {' '.join(cmd_args)}")
-            logger.info(f"Working directory: {Path.cwd()}")
+            success = False
+            last_error = None
             
-            # Run the main.py script
-            process = await asyncio.create_subprocess_exec(
-                *cmd_args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=Path.cwd(),
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
-                # Success - verify the CSV file was created
-                # Check multiple possible locations and names for the CSV file
-                possible_locations = [
-                    Path(output_base),  # Without .csv extension (script creates this)
-                    Path(f"{output_base}.csv"),  # With .csv extension
-                    Path.cwd() / output_base,  # Explicit current directory without .csv
-                    Path.cwd() / f"{output_base}.csv",  # Explicit current directory with .csv
-                    main_script_path.parent / output_base,  # Script directory without .csv
-                    main_script_path.parent / f"{output_base}.csv",  # Script directory with .csv
-                ]
-                
-                csv_path = None
-                for location in possible_locations:
-                    if location.exists():
-                        csv_path = location
-                        logger.info(f"Found output file at: {csv_path}")
-                        break
-                
-                if csv_path:
-                    logger.info(f"Successfully found analysis output at: {csv_path}")
+            for python_exe in python_executables:
+                try:
+                    # Prepare command arguments
+                    cmd_args = [
+                        python_exe, str(main_script_path),
+                        "--frontend", str(Path(frontend_path).absolute()),
+                        "--backend", str(Path(backend_path).absolute()),
+                        "--output", output_base,
+                    ]
                     
-                    # Move the file to the target directory with .csv extension
-                    final_path = output_path
+                    # Prepare environment
+                    env = os.environ.copy()
+                    current_dir = str(Path.cwd())
+                    if 'PYTHONPATH' in env:
+                        env['PYTHONPATH'] = f"{current_dir}{os.pathsep}{env['PYTHONPATH']}"
+                    else:
+                        env['PYTHONPATH'] = current_dir
+                    
+                    logger.info(f"Trying Python executable: {python_exe}")
+                    logger.info(f"Command: {' '.join(cmd_args)}")
+                    logger.info(f"Working directory: {Path.cwd()}")
+                    
+                    # Run the script with timeout
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd_args,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=Path.cwd(),
+                        env=env,
+                    )
                     
                     try:
-                        import shutil
-                        # Ensure the target directory exists
-                        final_path.parent.mkdir(parents=True, exist_ok=True)
-                        
-                        # Copy/move the file to the final location
-                        shutil.copy2(str(csv_path), str(final_path))
-                        logger.info(f"✅ Successfully moved output file to: {final_path}")
-                        
-                        # Clean up the original file if it's different from the final path
-                        if csv_path.resolve() != final_path.resolve():
-                            try:
-                                csv_path.unlink()
-                                logger.info(f"Cleaned up temporary file: {csv_path}")
-                            except Exception as e:
-                                logger.warning(f"Could not clean up temporary file: {e}")
-                        
-                        # Verify the final file exists and has content
-                        if final_path.exists():
-                            file_size = final_path.stat().st_size
-                            logger.info(f"Final output file size: {file_size} bytes")
-                            
-                            # Verify it's a valid CSV by checking the first line
-                            try:
-                                with open(final_path, 'r', encoding='utf-8') as f:
-                                    first_line = f.readline().strip()
-                                    if 'Frontend_File' in first_line or 'Frontend File' in first_line:
-                                        logger.info("✅ Valid CSV header detected")
-                                    else:
-                                        logger.warning(f"Unexpected CSV header: {first_line[:100]}")
-                            except Exception as e:
-                                logger.warning(f"Could not verify CSV content: {e}")
-                        else:
-                            logger.error(f"Final output file was not created: {final_path}")
-                            return False
-                            
-                    except Exception as e:
-                        logger.error(f"Failed to move output file: {e}")
-                        return False
+                        # Wait for process with timeout (5 minutes)
+                        stdout, stderr = await asyncio.wait_for(
+                            process.communicate(), 
+                            timeout=300
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(f"Script execution timed out after 5 minutes")
+                        try:
+                            process.terminate()
+                            await process.wait()
+                        except:
+                            pass
+                        continue
                     
-                    # Log stdout for debugging
+                    # Log process details
+                    logger.info(f"Process return code: {process.returncode}")
+                    
                     if stdout:
-                        logger.info(f"Script output: {stdout.decode()}")
+                        stdout_text = stdout.decode('utf-8', errors='ignore')
+                        logger.info(f"Script stdout: {stdout_text[:1000]}...")  # First 1000 chars
                     
-                    return True
-                else:
-                    logger.error(f"Output file was not found at any expected location:")
-                    for i, location in enumerate(possible_locations):
-                        logger.error(f"  {i+1}. {location.absolute()} (exists: {location.exists()})")
-                    
-                    # List all files in current directory for debugging
-                    try:
-                        current_files = list(Path.cwd().glob("*"))
-                        csv_files = [f for f in current_files if f.suffix.lower() == '.csv']
-                        other_files = [f for f in current_files if f.name.startswith(output_base)]
-                        
-                        logger.info(f"CSV files in current directory: {[f.name for f in csv_files]}")
-                        logger.info(f"Files starting with '{output_base}': {[f.name for f in other_files]}")
-                    except Exception as e:
-                        logger.error(f"Error listing files: {e}")
-                    
-                    # Log stdout and stderr for debugging
-                    if stdout:
-                        logger.info(f"Script stdout: {stdout.decode()}")
                     if stderr:
-                        logger.error(f"Script stderr: {stderr.decode()}")
-                    return False
-            else:
-                # Error
-                error_msg = stderr.decode() if stderr else "Unknown error occurred"
-                logger.error(f"main.py script failed with return code {process.returncode}: {error_msg}")
-                
-                # Also log stdout in case there's useful info
-                if stdout:
-                    logger.info(f"Script stdout: {stdout.decode()}")
-                
+                        stderr_text = stderr.decode('utf-8', errors='ignore')
+                        logger.error(f"Script stderr: {stderr_text[:1000]}...")  # First 1000 chars
+                        last_error = stderr_text
+                    
+                    if process.returncode == 0:
+                        # Success - check for output file
+                        if await self._verify_and_move_output_file(output_base, output_path, main_script_path):
+                            success = True
+                            break
+                        else:
+                            logger.warning(f"Script succeeded but output file not found with {python_exe}")
+                            continue
+                    else:
+                        logger.warning(f"Script failed with return code {process.returncode} using {python_exe}")
+                        continue
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to execute with {python_exe}: {e}")
+                    last_error = str(e)
+                    
+                    # Log more details about the exception
+                    import traceback
+                    logger.error(f"Full traceback for {python_exe}: {traceback.format_exc()}")
+                    continue
+            
+            if not success:
+                logger.error(f"All Python executables failed. Last error: {last_error}")
                 return False
+            
+            logger.info("✅ Analysis script completed successfully")
+            return True
                 
         except Exception as e:
             logger.error(f"Error running main.py analysis script: {e}", job_id=str(job_id))
             return False
     
+    async def _verify_and_move_output_file(self, output_base: str, output_path: Path, main_script_path: Path) -> bool:
+        """Verify output file exists and move it to the correct location."""
+        try:
+            # Check multiple possible locations for the output file
+            possible_locations = [
+                Path(output_base),  # Without .csv extension
+                Path(f"{output_base}.csv"),  # With .csv extension
+                Path.cwd() / output_base,  # Current directory without .csv
+                Path.cwd() / f"{output_base}.csv",  # Current directory with .csv
+                main_script_path.parent / output_base,  # Script directory without .csv
+                main_script_path.parent / f"{output_base}.csv",  # Script directory with .csv
+            ]
+            
+            csv_path = None
+            for location in possible_locations:
+                if location.exists():
+                    csv_path = location
+                    logger.info(f"Found output file at: {csv_path}")
+                    break
+            
+            if not csv_path:
+                logger.error(f"Output file not found at any expected location:")
+                for i, location in enumerate(possible_locations):
+                    logger.error(f"  {i+1}. {location.absolute()} (exists: {location.exists()})")
+                
+                # List all files in current directory for debugging
+                try:
+                    current_files = list(Path.cwd().glob("*"))
+                    csv_files = [f for f in current_files if f.suffix.lower() == '.csv']
+                    other_files = [f for f in current_files if f.name.startswith(output_base)]
+                    
+                    logger.info(f"CSV files in current directory: {[f.name for f in csv_files]}")
+                    logger.info(f"Files starting with '{output_base}': {[f.name for f in other_files]}")
+                except Exception as e:
+                    logger.error(f"Error listing files: {e}")
+                
+                return False
+            
+            # Move file to final location
+            final_path = output_path
+            
+            try:
+                # Ensure target directory exists
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Copy file to final location
+                shutil.copy2(str(csv_path), str(final_path))
+                logger.info(f"✅ Successfully moved output file to: {final_path}")
+                
+                # Clean up original file if different
+                if csv_path.resolve() != final_path.resolve():
+                    try:
+                        csv_path.unlink()
+                        logger.info(f"Cleaned up temporary file: {csv_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not clean up temporary file: {e}")
+                
+                # Verify final file
+                if final_path.exists():
+                    file_size = final_path.stat().st_size
+                    logger.info(f"Final output file size: {file_size} bytes")
+                    
+                    # Verify CSV content
+                    try:
+                        with open(final_path, 'r', encoding='utf-8') as f:
+                            first_line = f.readline().strip()
+                            if 'Frontend_File' in first_line or 'Frontend File' in first_line:
+                                logger.info("✅ Valid CSV header detected")
+                            else:
+                                logger.warning(f"Unexpected CSV header: {first_line[:100]}")
+                    except Exception as e:
+                        logger.warning(f"Could not verify CSV content: {e}")
+                    
+                    return True
+                else:
+                    logger.error(f"Final output file was not created: {final_path}")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Failed to move output file: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error verifying output file: {e}")
+            return False
+
     async def run_analysis(
         self,
         job_id: UUID,
@@ -331,13 +392,24 @@ class RepositoryAnalysisService:
             logger.info(f"Auto-generated output filename: {output_filename}")
             logger.info(f"Output will be saved to: {output_path}")
             
-            # Run the analysis using main.py script
-            success = await self._run_action_to_table_analysis(
+            # Skip subprocess approach for now and directly try direct approach
+            logger.info("Skipping subprocess approach, trying direct analysis...")
+            success = await self.direct_runner.run_analysis(
                 frontend_path=frontend_path,
                 backend_path=backend_path,
                 output_file=str(output_path),
                 job_id=job_id
             )
+            
+            # If direct approach also fails, try subprocess as fallback
+            if not success:
+                logger.info("Direct approach failed, trying subprocess approach...")
+                success = await self._run_action_to_table_analysis(
+                    frontend_path=frontend_path,
+                    backend_path=backend_path,
+                    output_file=str(output_path),
+                    job_id=job_id
+                )
             
             if success:
                 # Success - now insert data into database
