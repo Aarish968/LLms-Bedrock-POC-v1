@@ -12,16 +12,19 @@ import {
   Tabs,
   Tab,
 } from '@mui/material'
-import { Search, PlayArrow, Person, Work, Analytics } from '@mui/icons-material'
+import { Search, PlayArrow, Person, Work, Analytics, Code } from '@mui/icons-material'
 
 import ColumnLineageTable from '../components/ColumnLineageTable/ColumnLineageTable'
 import LineageAnalysisDialog from '../components/LineageAnalysis/LineageAnalysisDialog'
 import JobsDashboard from '../components/LineageAnalysis/JobsDashboard'
+import { RepositoryAnalysisDialog } from '../components/RepositoryAnalysis'
 import useUserContext from '@/hooks/users/useUserContext'
+import { RepositoryAnalysisResponse } from '../types/repositoryAnalysis'
 
 const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
+  const [repoAnalysisDialogOpen, setRepoAnalysisDialogOpen] = useState(false)
   const [currentTab, setCurrentTab] = useState(0)
   const user = useUserContext()
 
@@ -33,17 +36,32 @@ const DashboardPage = () => {
     setAnalysisDialogOpen(true)
   }
 
+  const handleStartRepoAnalysis = () => {
+    setRepoAnalysisDialogOpen(true)
+  }
+
   const handleAnalysisStarted = () => {
     // Switch to Analysis Jobs tab when analysis starts
     setCurrentTab(1)
     setAnalysisDialogOpen(false)
   }
 
+  const handleRepoAnalysisStarted = (response: RepositoryAnalysisResponse) => {
+    // Switch to Analysis Jobs tab when repo analysis starts
+    setCurrentTab(1)
+    setRepoAnalysisDialogOpen(false)
+    console.log('Repository analysis started:', response)
+  }
+
   const handleCloseAnalysisDialog = () => {
     setAnalysisDialogOpen(false)
   }
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleCloseRepoAnalysisDialog = () => {
+    setRepoAnalysisDialogOpen(false)
+  }
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setCurrentTab(newValue)
   }
 
@@ -138,11 +156,12 @@ const DashboardPage = () => {
               /> */}
               <ColumnLineageTable searchQuery={searchQuery} />
               
-              {/* Start Analysis Button - Moved after table */}
+              {/* Start Analysis Buttons - Moved after table */}
               <Box sx={{ 
                 display: 'flex', 
                 justifyContent: 'center', 
                 alignItems: 'center',
+                gap: 3,
                 mt: 3,
                 p: 2
               }}>
@@ -160,12 +179,31 @@ const DashboardPage = () => {
                     Analyze database view dependencies
                   </Typography>
                 </Box>
+
+                <Box sx={{ textAlign: 'center' }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<Code />}
+                    onClick={handleStartRepoAnalysis}
+                    color="secondary"
+                    sx={{ mb: 1 }}
+                  >
+                    Start to Repo Analyze
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Analyze repository structure & dependencies
+                  </Typography>
+                </Box>
               </Box>
             </Box>
           )}
 
           {currentTab === 1 && (
-            <JobsDashboard onNewAnalysis={handleStartAnalysis} />
+            <JobsDashboard 
+              onNewAnalysis={handleStartAnalysis}
+              onNewRepoAnalysis={handleStartRepoAnalysis}
+            />
           )}
         </CardContent>
       </Card>
@@ -175,6 +213,13 @@ const DashboardPage = () => {
         open={analysisDialogOpen}
         onClose={handleCloseAnalysisDialog}
         onAnalysisStarted={handleAnalysisStarted}
+      />
+
+      {/* Repository Analysis Dialog */}
+      <RepositoryAnalysisDialog
+        open={repoAnalysisDialogOpen}
+        onClose={handleCloseRepoAnalysisDialog}
+        onAnalysisStarted={handleRepoAnalysisStarted}
       />
     </Box>
   )

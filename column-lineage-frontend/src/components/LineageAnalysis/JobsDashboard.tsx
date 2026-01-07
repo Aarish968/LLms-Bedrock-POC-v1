@@ -8,19 +8,27 @@ import {
   DialogContent,
   DialogActions,
   Alert,
+  Tabs,
+  Tab,
 } from '@mui/material';
-import { Add, Refresh } from '@mui/icons-material';
+import { Add, Refresh, Analytics, Code } from '@mui/icons-material';
 import { useLineageJobs, useJobStatus, useLineageResults } from '@/hooks/lineage/useLineageAnalysis';
 import JobStatusCard from './JobStatusCard';
 import ResultsViewer from './ResultsViewer';
+import { RepositoryAnalysisJobs } from '../RepositoryAnalysis';
 
 interface JobsDashboardProps {
   onNewAnalysis: () => void;
+  onNewRepoAnalysis?: () => void;
 }
 
-const JobsDashboard: React.FC<JobsDashboardProps> = ({ onNewAnalysis }) => {
+const JobsDashboard: React.FC<JobsDashboardProps> = ({ 
+  onNewAnalysis, 
+  onNewRepoAnalysis 
+}) => {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const [currentTab, setCurrentTab] = useState(0);
 
   const { data: jobs, isLoading: jobsLoading, refetch: refetchJobs } = useLineageJobs();
   const { data: selectedJobStatus, refetch: refetchJobStatus } = useJobStatus(
@@ -51,6 +59,10 @@ const JobsDashboard: React.FC<JobsDashboardProps> = ({ onNewAnalysis }) => {
     refetchJobs();
   };
 
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue);
+  };
+
   // Check if there's any running job to disable new analysis
   const hasRunningJob = jobs?.some(job => 
     job.status === 'PENDING' || job.status === 'RUNNING'
@@ -64,72 +76,94 @@ const JobsDashboard: React.FC<JobsDashboardProps> = ({ onNewAnalysis }) => {
     onNewAnalysis();
   };
 
-  if (jobsLoading) {
-    return (
-      <Box display="flex" justifyContent="center" p={3}>
-        <Typography>Loading jobs...</Typography>
-      </Box>
-    );
-  }
-
   return (
     <Box>
-      <Box display="flex" alignItems="center" justifyContent="between" sx={{ mb: 3 }}>
-        <Typography variant="h5" component="h1">
-          Column Lineage Jobs
-        </Typography>
-        <Box display="flex" gap={1}>
-          <Button
-            variant="outlined"
-            startIcon={<Refresh />}
-            onClick={handleRefreshAll}
-          >
-            Refresh
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={handleNewAnalysis}
-            disabled={hasRunningJob}
-            title={hasRunningJob ? 'Please wait for current analysis to complete' : 'Start new analysis'}
-          >
-            New Analysis
-          </Button>
-        </Box>
+      {/* Jobs Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={currentTab} onChange={handleTabChange}>
+          <Tab 
+            icon={<Analytics />} 
+            label="Column Lineage Jobs" 
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<Code />} 
+            label="Repository Analysis Jobs" 
+            iconPosition="start"
+          />
+        </Tabs>
       </Box>
 
-      {hasRunningJob && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Analysis in progress. New analysis will be available once current job completes.
-        </Alert>
+      {/* Column Lineage Jobs Tab */}
+      {currentTab === 0 && (
+        <Box>
+          <Box display="flex" alignItems="center" justifyContent="between" sx={{ mb: 3 }}>
+            <Typography variant="h6" component="h2">
+              Column Lineage Analysis
+            </Typography>
+            <Box display="flex" gap={1}>
+              <Button
+                variant="outlined"
+                startIcon={<Refresh />}
+                onClick={handleRefreshAll}
+              >
+                Refresh
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={handleNewAnalysis}
+                disabled={hasRunningJob}
+                title={hasRunningJob ? 'Please wait for current analysis to complete' : 'Start new analysis'}
+              >
+                New Analysis
+              </Button>
+            </Box>
+          </Box>
+
+          {hasRunningJob && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Analysis in progress. New analysis will be available once current job completes.
+            </Alert>
+          )}
+
+          {jobsLoading ? (
+            <Box display="flex" justifyContent="center" p={3}>
+              <Typography>Loading jobs...</Typography>
+            </Box>
+          ) : !jobs || jobs.length === 0 ? (
+            <Alert severity="info">
+              No analysis jobs found. Start your first analysis!
+            </Alert>
+          ) : (
+            <Box>
+              {jobs.map((job) => (
+                <JobStatusCard
+                  key={job.job_id}
+                  jobId={job.job_id}
+                  status={job.status}
+                  totalViews={job.total_views}
+                  processedViews={job.processed_views}
+                  resultsCount={job.results_count}
+                  createdAt={job.created_at}
+                  startedAt={job.started_at}
+                  completedAt={job.completed_at}
+                  successfulViews={job.successful_views}
+                  failedViews={job.failed_views}
+                  requestParams={job.request_params}
+                  errorMessage={job.error_message}
+                  onViewResults={() => handleViewResults(job.job_id)}
+                  onRefresh={() => handleRefreshJob(job.job_id)}
+                />
+              ))}
+            </Box>
+          )}
+        </Box>
       )}
 
-      {!jobs || jobs.length === 0 ? (
-        <Alert severity="info">
-          No analysis jobs found. Start your first analysis!
-        </Alert>
-      ) : (
-        <Box>
-          {jobs.map((job) => (
-            <JobStatusCard
-              key={job.job_id}
-              jobId={job.job_id}
-              status={job.status}
-              totalViews={job.total_views}
-              processedViews={job.processed_views}
-              resultsCount={job.results_count}
-              createdAt={job.created_at}
-              startedAt={job.started_at}
-              completedAt={job.completed_at}
-              successfulViews={job.successful_views}
-              failedViews={job.failed_views}
-              requestParams={job.request_params}
-              errorMessage={job.error_message}
-              onViewResults={() => handleViewResults(job.job_id)}
-              onRefresh={() => handleRefreshJob(job.job_id)}
-            />
-          ))}
-        </Box>
+      {/* Repository Analysis Jobs Tab */}
+      {currentTab === 1 && (
+        <RepositoryAnalysisJobs onNewAnalysis={onNewRepoAnalysis} />
       )}
 
       {/* Results Dialog */}
