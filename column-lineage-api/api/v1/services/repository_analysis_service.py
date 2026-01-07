@@ -43,6 +43,9 @@ class RepositoryAnalysisService:
         self.default_frontend_repo = os.getenv("DEFAULT_FRONTEND_REPO", "guided-workflow")
         self.default_backend_repo = os.getenv("DEFAULT_BACKEND_REPO", "guided-workflow-backend")
         
+        # Bulk insert configuration
+        self.bulk_insert_batch_size = int(os.getenv("BULK_INSERT_BATCH_SIZE", "100"))
+        
         # Initialize database manager
         self.db_manager = DatabaseManager()
         
@@ -50,6 +53,7 @@ class RepositoryAnalysisService:
         self.direct_runner = DirectAnalysisRunner()
         
         logger.info(f"Default repositories configured - Frontend: {self.default_frontend_repo}, Backend: {self.default_backend_repo}")
+        logger.info(f"Bulk insert batch size: {self.bulk_insert_batch_size}")
     
     def get_job(self, job_id: UUID) -> Optional[RepositoryAnalysisJob]:
         """Get job by ID."""
@@ -675,8 +679,8 @@ class RepositoryAnalysisService:
                     logger.warning(f"  Row {skipped['row_number']}: {skipped['reason']}")
                     logger.debug(f"    Data: {skipped['data']}")
             
-            # Insert data using the improved batch method
-            inserted_count = self._batch_insert_data(insert_data)
+            # Insert data using the optimized bulk insert method
+            inserted_count = self._bulk_insert_data(insert_data)
             
             # Final summary
             logger.info(f"Final summary - CSV rows: {total_csv_rows}, Processed for insertion: {len(insert_data)}, Successfully inserted: {inserted_count}, Failed insertions: {len(insert_data) - inserted_count}")
@@ -687,32 +691,34 @@ class RepositoryAnalysisService:
             logger.error(f"Failed to insert CSV data row by row: {e}")
             return False
     
-    def _batch_insert_data(self, insert_data: list) -> int:
-        """Insert data in batches using individual INSERT statements to handle large data."""
+    def _bulk_insert_data(self, insert_data: list) -> int:
+        """Insert data in batches using bulk INSERT statements for better performance."""
         try:
             if not insert_data:
                 logger.info("No data to insert")
                 return 0
             
-            # Use smaller batch size and individual INSERTs to handle large data
-            batch_size = 100  # Reduced batch size for large data
+            # Use bulk insert with configurable batch size
+            batch_size = self.bulk_insert_batch_size
             total_inserted = 0
-            failed_rows = []
+            failed_batches = []
             
             # Generate current timestamp for all records
             from datetime import datetime
-            current_timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # Format with milliseconds
+            current_timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
             
-            logger.info(f"Starting to insert {len(insert_data)} rows in batches of {batch_size}")
+            logger.info(f"Starting bulk insert of {len(insert_data)} rows in batches of {batch_size}")
             
             for i in range(0, len(insert_data), batch_size):
                 batch = insert_data[i:i + batch_size]
+                batch_num = i // batch_size + 1
                 
-                # Insert each row individually to avoid query size limits
-                for row_index, row in enumerate(batch):
-                    global_row_num = i + row_index + 1
-                    try:
-                        # Escape single quotes in values and handle large text
+                try:
+                    # Build bulk INSERT statement
+                    values_list = []
+                    
+                    for row in batch:
+                        # Escape and format values
                         def escape_value(value):
                             if value is None or value == '':
                                 return "NULL"
@@ -720,14 +726,8 @@ class RepositoryAnalysisService:
                             escaped = str(value).replace("'", "''").replace("\\", "\\\\")
                             return f"'{escaped}'"
                         
-                        # Log the row being processed for debugging
-                        logger.debug(f"Processing row {global_row_num}: {row.get('frontend_file', 'unknown')} - {row.get('frontend_function', 'unknown')}")
-                        
-                        # Build individual INSERT statement
-                        insert_sql = f"""
-                        INSERT INTO CPS_DB.CPS_DSCI_BR.ACTION_TO_ENDPOINTS_TABLES_MAPPING 
-                        (FRONTEND_FILE, FRONTEND_FUNCTION, HTTP_METHOD, FRONTEND_URL, BACKEND_FILE, BACKEND_FUNCTION, BACKEND_ROUTE, DATABASE_TABLES, STORED_PROCEDURES, FLOW_CALLS, RESPONSE_MODEL, RESPONSE_FIELDS, NESTED_FIELDS, TABLE_COLUMN_DETAILS, ANALYSIS_TIMESTAMP, CREATED_AT)
-                        VALUES (
+                        # Create VALUES clause for this row
+                        values_clause = f"""(
                             {escape_value(row['frontend_file'])}, 
                             {escape_value(row['frontend_function'])}, 
                             {escape_value(row['http_method'])}, 
@@ -744,56 +744,104 @@ class RepositoryAnalysisService:
                             {escape_value(row['table_column_details'])}, 
                             '{current_timestamp}', 
                             '{current_timestamp}'
-                        )
-                        """
+                        )"""
                         
-                        self.db_manager.execute_query(insert_sql)
-                        total_inserted += 1
-                        
-                        # Log progress every 10 rows
-                        if total_inserted % 10 == 0:
-                            logger.info(f"Inserted {total_inserted} rows so far...")
-                        
-                    except Exception as row_error:
-                        failed_rows.append({
-                            'row_number': global_row_num,
-                            'error': str(row_error),
-                            'data': row
-                        })
-                        logger.error(f"❌ FAILED to insert row {global_row_num}: {row_error}")
-                        # Log the specific row data that failed with more detail
-                        logger.error(f"   Frontend_File: {row.get('frontend_file', 'N/A')}")
-                        logger.error(f"   Frontend_Function: {row.get('frontend_function', 'N/A')}")
-                        logger.error(f"   HTTP_Method: {row.get('http_method', 'N/A')}")
-                        logger.error(f"   Backend_Route: {row.get('backend_route', 'N/A')}")
-                        
-                        # Check for potential issues
-                        for key, value in row.items():
-                            if value and len(str(value)) > 1000:
-                                logger.error(f"   Large field {key}: {len(str(value))} characters")
-                            if value and ("'" in str(value)):
-                                quote_count = str(value).count("'")
-                                if quote_count > 5:
-                                    logger.error(f"   Many quotes in {key}: {quote_count} quotes")
-                        
-                        continue
-                
-                logger.debug(f"Completed batch {i//batch_size + 1}")
+                        values_list.append(values_clause)
+                    
+                    # Build complete bulk INSERT statement
+                    bulk_insert_sql = f"""
+                    INSERT INTO CPS_DB.CPS_DSCI_BR.ACTION_TO_ENDPOINTS_TABLES_MAPPING 
+                    (FRONTEND_FILE, FRONTEND_FUNCTION, HTTP_METHOD, FRONTEND_URL, BACKEND_FILE, BACKEND_FUNCTION, BACKEND_ROUTE, DATABASE_TABLES, STORED_PROCEDURES, FLOW_CALLS, RESPONSE_MODEL, RESPONSE_FIELDS, NESTED_FIELDS, TABLE_COLUMN_DETAILS, ANALYSIS_TIMESTAMP, CREATED_AT)
+                    VALUES {', '.join(values_list)}
+                    """
+                    
+                    # Execute bulk insert
+                    logger.info(f"Executing bulk insert for batch {batch_num} ({len(batch)} rows)")
+                    self.db_manager.execute_query(bulk_insert_sql)
+                    
+                    total_inserted += len(batch)
+                    logger.info(f"✅ Successfully inserted batch {batch_num}: {len(batch)} rows (Total: {total_inserted})")
+                    
+                except Exception as batch_error:
+                    logger.error(f"❌ Bulk insert failed for batch {batch_num}: {batch_error}")
+                    failed_batches.append({
+                        'batch_number': batch_num,
+                        'batch_size': len(batch),
+                        'error': str(batch_error)
+                    })
+                    
+                    # Fallback to individual inserts for this batch
+                    logger.info(f"Falling back to individual inserts for batch {batch_num}")
+                    individual_inserted = self._insert_batch_individually(batch, current_timestamp, i)
+                    total_inserted += individual_inserted
+                    
+                    continue
             
-            # Log summary of results
-            logger.info(f"Batch insert completed - Total inserted: {total_inserted}, Failed: {len(failed_rows)}")
+            # Log final summary
+            logger.info(f"🎉 Bulk insert completed!")
+            logger.info(f"   Total rows processed: {len(insert_data)}")
+            logger.info(f"   Successfully inserted: {total_inserted}")
+            logger.info(f"   Failed batches: {len(failed_batches)}")
+            logger.info(f"   Success rate: {(total_inserted/len(insert_data)*100):.1f}%")
             
-            if failed_rows:
-                logger.warning(f"Failed to insert {len(failed_rows)} rows:")
-                for failed_row in failed_rows:
-                    logger.warning(f"  Row {failed_row['row_number']}: {failed_row['error']}")
-                    logger.debug(f"    Data: {failed_row['data']}")
+            if failed_batches:
+                logger.warning(f"Failed batches summary:")
+                for failed_batch in failed_batches:
+                    logger.warning(f"  Batch {failed_batch['batch_number']}: {failed_batch['error']}")
             
             return total_inserted
             
         except Exception as e:
-            logger.error(f"Failed to batch insert data: {e}")
-            return total_inserted  # Return what we managed to insert
+            logger.error(f"Failed to perform bulk insert: {e}")
+            return total_inserted
+    
+    def _insert_batch_individually(self, batch: list, current_timestamp: str, batch_start_index: int) -> int:
+        """Fallback method to insert a batch row by row when bulk insert fails."""
+        individual_inserted = 0
+        
+        for row_index, row in enumerate(batch):
+            global_row_num = batch_start_index + row_index + 1
+            try:
+                # Escape values
+                def escape_value(value):
+                    if value is None or value == '':
+                        return "NULL"
+                    escaped = str(value).replace("'", "''").replace("\\", "\\\\")
+                    return f"'{escaped}'"
+                
+                # Build individual INSERT statement
+                insert_sql = f"""
+                INSERT INTO CPS_DB.CPS_DSCI_BR.ACTION_TO_ENDPOINTS_TABLES_MAPPING 
+                (FRONTEND_FILE, FRONTEND_FUNCTION, HTTP_METHOD, FRONTEND_URL, BACKEND_FILE, BACKEND_FUNCTION, BACKEND_ROUTE, DATABASE_TABLES, STORED_PROCEDURES, FLOW_CALLS, RESPONSE_MODEL, RESPONSE_FIELDS, NESTED_FIELDS, TABLE_COLUMN_DETAILS, ANALYSIS_TIMESTAMP, CREATED_AT)
+                VALUES (
+                    {escape_value(row['frontend_file'])}, 
+                    {escape_value(row['frontend_function'])}, 
+                    {escape_value(row['http_method'])}, 
+                    {escape_value(row['frontend_url'])}, 
+                    {escape_value(row['backend_file'])}, 
+                    {escape_value(row['backend_function'])}, 
+                    {escape_value(row['backend_route'])}, 
+                    {escape_value(row['database_tables'])}, 
+                    {escape_value(row['stored_procedures'])}, 
+                    {escape_value(row['flow_calls'])}, 
+                    {escape_value(row['response_model'])}, 
+                    {escape_value(row['response_fields'])}, 
+                    {escape_value(row['nested_fields'])}, 
+                    {escape_value(row['table_column_details'])}, 
+                    '{current_timestamp}', 
+                    '{current_timestamp}'
+                )
+                """
+                
+                self.db_manager.execute_query(insert_sql)
+                individual_inserted += 1
+                
+            except Exception as row_error:
+                logger.error(f"❌ Individual insert failed for row {global_row_num}: {row_error}")
+                continue
+        
+        logger.info(f"Individual fallback completed: {individual_inserted}/{len(batch)} rows inserted")
+        return individual_inserted
     
     def _get_csv_value(self, row: dict, possible_keys: list) -> str:
         """Get value from CSV row using possible column name variations."""
