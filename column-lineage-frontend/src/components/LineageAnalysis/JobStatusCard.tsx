@@ -162,6 +162,7 @@ const JobStatusCard: React.FC<JobStatusCardProps> = ({
           </Alert>
         )}
 
+        {/* Action buttons section - Commented out since using table format now
         <Box display="flex" gap={1}>
           {isJobCompleted && (
             <Button
@@ -196,6 +197,7 @@ const JobStatusCard: React.FC<JobStatusCardProps> = ({
             </Button>
           )}
         </Box>
+        */}
       </CardContent>
 
       {/* Job Data Dialog */}
