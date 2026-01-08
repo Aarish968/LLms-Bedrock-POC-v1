@@ -12,17 +12,11 @@ import {
   Button,
   Typography,
   Box,
-  CircularProgress,
   Alert,
   Chip,
-  LinearProgress,
 } from '@mui/material';
 import {
   PlayArrow,
-  Code,
-  CheckCircle,
-  Error as ErrorIcon,
-  Cancel,
   Refresh,
 } from '@mui/icons-material';
 
@@ -33,6 +27,49 @@ import {
   RepositoryAnalysisJob,
   AnalysisStatus,
 } from '../../types/repositoryAnalysis';
+
+// Debug Info Component
+const DebugInfo: React.FC<{
+  currentJobId: string | null;
+  jobStatus: RepositoryAnalysisJob | null;
+  isAnalysisRunning: boolean;
+  isJobRunning: boolean;
+  isJobCompleted: boolean;
+}> = ({ currentJobId, jobStatus, isAnalysisRunning, isJobRunning, isJobCompleted }) => {
+  return (
+    <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+        Debug Info
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        <Chip
+          label={`Job ID: ${currentJobId || 'null'}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+        <Chip
+          label={`Analysis Running: ${isAnalysisRunning}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+        <Chip
+          label={`Job Running: ${isJobRunning}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+        <Chip
+          label={`Job Completed: ${isJobCompleted}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+      </Box>
+    </Box>
+  );
+};
 
 interface RepositoryAnalysisDialogProps {
   open: boolean;
@@ -48,21 +85,19 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<RepositoryAnalysisJob | null>(null);
   const [isStarting, setIsStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const { hasRunningJob, startAnalysis } = useRepositoryAnalysis();
 
   // Derived states
+  const isAnalysisRunning = isStarting;
   const isJobRunning = jobStatus?.status === AnalysisStatus.PENDING || 
                       jobStatus?.status === AnalysisStatus.CLONING || 
                       jobStatus?.status === AnalysisStatus.RUNNING;
   const isJobCompleted = jobStatus?.status === AnalysisStatus.COMPLETED;
-  const isJobFailed = jobStatus?.status === AnalysisStatus.FAILED;
   const canStartNewAnalysis = !hasRunningJob && !isJobRunning;
 
   const handleStartAnalysis = async () => {
     setIsStarting(true);
-    setError(null);
 
     try {
       // Use hook's startAnalysis method which handles immediate state update
@@ -98,11 +133,8 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
       }, 1000);
 
     } catch (err: any) {
-      setError(
-        err.response?.data?.detail || 
-        err.message || 
-        'Failed to start repository analysis'
-      );
+      // Handle error silently or show minimal error
+      console.error('Failed to start analysis:', err);
     } finally {
       setIsStarting(false);
     }
@@ -128,7 +160,6 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
   const resetWorkflow = () => {
     setCurrentJobId(null);
     setJobStatus(null);
-    setError(null);
     setIsRedirecting(false);
   };
 
@@ -145,62 +176,6 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
     resetWorkflow();
   };
 
-  const getStatusMessage = () => {
-    if (!jobStatus) return '';
-    
-    switch (jobStatus.status) {
-      case AnalysisStatus.PENDING:
-        return 'Repository analysis is starting...';
-      case AnalysisStatus.CLONING:
-        return 'Cloning repositories...';
-      case AnalysisStatus.RUNNING:
-        return 'Analyzing repository structure and dependencies...';
-      case AnalysisStatus.COMPLETED:
-        return 'Repository analysis completed successfully!';
-      case AnalysisStatus.FAILED:
-        return 'Repository analysis failed. Please check the error message below.';
-      case AnalysisStatus.CANCELLED:
-        return 'Repository analysis was cancelled.';
-      default:
-        return jobStatus.message || '';
-    }
-  };
-
-  const getStatusColor = (status: AnalysisStatus) => {
-    switch (status) {
-      case AnalysisStatus.PENDING:
-        return 'warning';
-      case AnalysisStatus.CLONING:
-      case AnalysisStatus.RUNNING:
-        return 'info';
-      case AnalysisStatus.COMPLETED:
-        return 'success';
-      case AnalysisStatus.FAILED:
-        return 'error';
-      case AnalysisStatus.CANCELLED:
-        return 'default';
-      default:
-        return 'default';
-    }
-  };
-
-  const getStatusIcon = (status: AnalysisStatus) => {
-    switch (status) {
-      case AnalysisStatus.PENDING:
-      case AnalysisStatus.CLONING:
-      case AnalysisStatus.RUNNING:
-        return <CircularProgress size={16} />;
-      case AnalysisStatus.COMPLETED:
-        return <CheckCircle />;
-      case AnalysisStatus.FAILED:
-        return <ErrorIcon />;
-      case AnalysisStatus.CANCELLED:
-        return <Cancel />;
-      default:
-        return undefined;
-    }
-  };
-
   return (
     <Dialog
       open={open}
@@ -208,18 +183,10 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
       maxWidth="md"
       fullWidth
       disableEscapeKeyDown={isJobRunning} // Prevent closing during job execution
-      PaperProps={{
-        sx: { borderRadius: 2 }
-      }}
     >
       <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Code color="primary" />
-            <Typography variant="h6">
-              Repository Analysis
-            </Typography>
-          </Box>
+        <Box display="flex" alignItems="center" justifyContent="space-between">
+          <Typography variant="h6">Repository Analysis</Typography>
           {currentJobId && (
             <Chip
               label={`Job: ${currentJobId.slice(0, 8)}...`}
@@ -231,107 +198,56 @@ const RepositoryAnalysisDialog: React.FC<RepositoryAnalysisDialogProps> = ({
       </DialogTitle>
 
       <DialogContent>
-        <Box sx={{ py: 1 }}>
-          {!currentJobId ? (
-            // Configuration Phase
-            <Box>
-              {hasRunningJob && (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  There is already a repository analysis job running. Please wait for it to complete before starting a new one.
-                </Alert>
-              )}
+        {/* Debug Info */}
+        <DebugInfo
+          currentJobId={currentJobId}
+          jobStatus={jobStatus}
+          isAnalysisRunning={isAnalysisRunning}
+          isJobRunning={isJobRunning}
+          isJobCompleted={isJobCompleted}
+        />
 
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Start Analyze Action To Endpoint Analysis..
-              </Typography>
-              
-              {!canStartNewAnalysis && (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  Another analysis is currently in progress. Please wait for it to complete.
-                </Alert>
-              )}
-            </Box>
-          ) : (
-            // Job Status Phase
-            <Box>
-              <Box sx={{ mb: 3 }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-                  <Typography variant="subtitle1">Analysis Status</Typography>
-                  <Chip
-                    {...(getStatusIcon(jobStatus?.status || AnalysisStatus.PENDING) && { 
-                      icon: getStatusIcon(jobStatus?.status || AnalysisStatus.PENDING) 
-                    })}
-                    label={jobStatus?.status?.toUpperCase() || 'Unknown'}
-                    color={getStatusColor(jobStatus?.status || AnalysisStatus.PENDING)}
-                    size="small"
-                  />
-                </Box>
-
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {getStatusMessage()}
-                </Typography>
-
-                {jobStatus && (jobStatus.status === AnalysisStatus.PENDING || 
-                              jobStatus.status === AnalysisStatus.CLONING || 
-                              jobStatus.status === AnalysisStatus.RUNNING) && (
-                  <Box>
-                    <LinearProgress sx={{ mb: 2 }} />
-                    <Typography variant="caption" color="text.secondary">
-                      Started: {new Date(jobStatus.started_at).toLocaleString()}
-                    </Typography>
-                  </Box>
-                )}
-
-                {isJobFailed && jobStatus?.error_message && (
-                  <Alert severity="error" sx={{ mt: 2 }}>
-                    {jobStatus.error_message}
-                  </Alert>
-                )}
-
-                {isJobCompleted && (
-                  <Alert severity="success" sx={{ mt: 2 }}>
-                    Repository analysis completed successfully! 
-                    {jobStatus?.output_file && ` Output file: ${jobStatus.output_file}`}
-                  </Alert>
-                )}
-
-                {isRedirecting && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    Analysis started successfully! Redirecting to Repository Analyze Job section...
-                  </Alert>
-                )}
-              </Box>
-            </Box>
-          )}
-
-          {error && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              <Typography variant="body2">
-                {error}
-              </Typography>
-            </Alert>
-          )}
-        </Box>
+        {!currentJobId ? (
+          // Configuration Phase
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Start Analyze Action To Endpoint Analysis.
+            </Typography>
+            
+            {!canStartNewAnalysis && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Another analysis is currently in progress. Please wait for it to complete.
+              </Alert>
+            )}
+          </Box>
+        ) : (
+          // Job Status Phase - Minimal display
+          <Box>
+            {isRedirecting && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Analysis started successfully! Redirecting to Repository Analysis Jobs section...
+              </Alert>
+            )}
+          </Box>
+        )}
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions>
         <Button 
           onClick={handleClose}
           disabled={isJobRunning}
-          color="inherit"
         >
           {isJobRunning ? 'Running...' : 'Close'}
         </Button>
 
         {!currentJobId ? (
           <Button
-            onClick={handleStartAnalysis}
             variant="contained"
-            startIcon={isStarting ? <CircularProgress size={16} /> : <PlayArrow />}
-            disabled={isStarting || !canStartNewAnalysis}
-            title={hasRunningJob ? 'Please wait for current analysis to complete' : undefined}
+            startIcon={<PlayArrow />}
+            onClick={handleStartAnalysis}
+            disabled={!canStartNewAnalysis}
           >
-            {isStarting ? 'Starting...' : 'Start Analysis'}
+            {isAnalysisRunning ? 'Starting...' : 'Start Analysis'}
           </Button>
         ) : (
           <Button
