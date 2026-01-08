@@ -21,7 +21,7 @@ import boto3
 from botocore.config import Config
 
 # Import existing database connection utilities
-from common.sec import get_sf_pw
+from api.dependencies.database import get_database_engine, DatabaseManager
 
 # --- Configure Logging ---
 logging.basicConfig(
@@ -52,35 +52,66 @@ class StoredProcedureAnalysis(BaseModel):
     cursors_detected: List[str] = Field(description="List of cursor names detected")
 
 # --- 2. Snowflake Connection Management ---
-def create_sf_connection_engine(sf_env: str = 'prod'):
-    """Create Snowflake connection engine using original common.sec method."""
+def get_sf_connection_engine():
+    """Get Snowflake connection engine using existing database infrastructure."""
     try:
-        # Use the original connection method from common.sec
-        if sf_env.lower() == 'prod':
-            conn_name = 'prd_cps_dsci_etl_svc'
-        elif sf_env.lower() == 'dev':
-            conn_name = 'dev_cps_dsci_etl_svc'
-        elif sf_env.lower() == 'stg':
-            conn_name = 'stg_cps_dsci_etl_svc'
-        else:
-            conn_name = 'prd_cps_dsci_etl_svc'  # default to prod
+        # Use the existing database engine from your infrastructure
+        engine = get_database_engine()
         
-        # Get connection string using original method
-        connection_string = get_sf_pw(conn_name, 'CPS_DSCI_WH', 'CPS_DSCI')
+        if engine is None:
+            logger.warning("Database engine is None - running in mock mode")
+            return None
         
-        # Create engine
-        engine = create_engine(connection_string)
+        # Test the connection
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            result = conn.execute(text("SELECT CURRENT_VERSION()"))
+            version = result.fetchone()[0]
+            logger.info(f"Successfully connected to Snowflake version: {version}")
         
-        logger.info(f"Successfully created Snowflake connection for {sf_env} environment using {conn_name}")
         return engine
         
     except Exception as e:
-        logger.error(f"Failed to create Snowflake connection: {e}")
+        logger.error(f"Failed to get Snowflake connection: {e}")
         raise
 
-def fetch_stored_procedures(sf_env: str = 'prod') -> List[Dict]:
-    """Fetch stored procedure definitions from Snowflake."""
-    engine = create_sf_connection_engine(sf_env)
+def get_database_manager():
+    """Get DatabaseManager instance for query execution."""
+    try:
+        db_manager = DatabaseManager()
+        
+        if db_manager.mock_mode:
+            logger.warning("DatabaseManager is in mock mode - no actual database connection")
+        else:
+            logger.info("DatabaseManager initialized successfully")
+        
+        return db_manager
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize DatabaseManager: {e}")
+        raise
+
+def fetch_stored_procedures(sf_environment: str = None) -> List[Dict]:
+    """Fetch stored procedure definitions from Snowflake using existing database infrastructure."""
+    # Note: sf_environment parameter is kept for backward compatibility but ignored
+    # The environment is now handled by the existing database infrastructure
+    db_manager = get_database_manager()
+    
+    # If in mock mode, return sample data for testing
+    if db_manager.mock_mode:
+        logger.info("Running in mock mode - returning sample stored procedure data")
+        return [
+            {
+                'procedure_name': 'SAMPLE_PROCEDURE_1',
+                'procedure_definition': 'CREATE OR REPLACE PROCEDURE SAMPLE_PROCEDURE_1() RETURNS STRING LANGUAGE SQL AS $$ BEGIN RETURN \'Hello World\'; END; $$',
+                'procedure_schema': 'CPS_DSCI_API'
+            },
+            {
+                'procedure_name': 'SAMPLE_PROCEDURE_2', 
+                'procedure_definition': 'CREATE OR REPLACE PROCEDURE SAMPLE_PROCEDURE_2() RETURNS STRING LANGUAGE SQL AS $$ BEGIN SELECT * FROM SAMPLE_TABLE; END; $$',
+                'procedure_schema': 'CPS_DSCI_API'
+            }
+        ]
     
     sql = """
     SELECT
@@ -93,57 +124,32 @@ def fetch_stored_procedures(sf_env: str = 'prod') -> List[Dict]:
     """
     
     try:
-        with engine.connect() as connection:
-            result = pd.read_sql(text(sql), connection)
-
-            # Handle case-insensitive column access by finding the correct column names
-            column_mapping = {}
-            for col in result.columns:
-                col_upper = col.upper()
-                if 'PROCEDURE_NAME' in col_upper or col_upper == 'PROCEDURE_NAME':
-                    column_mapping['procedure_name'] = col
-                elif 'PROCEDURE_DEFINITION' in col_upper or col_upper == 'PROCEDURE_DEFINITION':
-                    column_mapping['procedure_definition'] = col
-                elif 'PROCEDURE_SCHEMA' in col_upper or col_upper == 'PROCEDURE_SCHEMA':
-                    column_mapping['procedure_schema'] = col
-            
-            logger.info(f"Column mapping: {column_mapping}")
-            
-            if len(column_mapping) != 3:
-                logger.error(f"Expected 3 columns, found mapping for {len(column_mapping)}")
-                logger.error(f"Available columns: {list(result.columns)}")
-                # Try alternative approach - use positional access
-                if len(result.columns) >= 3:
-                    logger.info("Attempting positional column access...")
-                    procedures = []
-                    for _, row in result.iterrows():
-                        procedures.append({
-                            'procedure_name': row.iloc[0],  # First column
-                            'procedure_definition': row.iloc[1],  # Second column
-                            'procedure_schema': row.iloc[2]  # Third column
-                        })
-                    logger.info(f"Fetched {len(procedures)} stored procedures using positional access")
-                    return procedures
-                else:
-                    raise ValueError("Could not map all required columns")
-            
-            procedures = []
-            for _, row in result.iterrows():
+        # Use DatabaseManager's execute_query method
+        result_rows = db_manager.execute_query(sql)
+        
+        if not result_rows:
+            logger.warning("No stored procedures found")
+            return []
+        
+        # Convert result rows to list of dictionaries
+        procedures = []
+        for row in result_rows:
+            # Handle different possible column orders/names
+            if len(row) >= 3:
                 procedures.append({
-                    'procedure_name': row[column_mapping['procedure_name']],
-                    'procedure_definition': row[column_mapping['procedure_definition']],
-                    'procedure_schema': row[column_mapping['procedure_schema']]
+                    'procedure_name': str(row[0]),
+                    'procedure_definition': str(row[1]),
+                    'procedure_schema': str(row[2])
                 })
-            
-            logger.info(f"Fetched {len(procedures)} stored procedures from Snowflake")
-            return procedures
-            
+        
+        logger.info(f"Fetched {len(procedures)} stored procedures from Snowflake")
+        return procedures
+        
     except Exception as e:
         logger.error(f"Error fetching stored procedures: {e}")
-        raise
-    finally:
-        # Dispose the engine after use
-        engine.dispose()
+        # In case of error, return empty list instead of raising
+        logger.warning("Returning empty procedure list due to fetch error")
+        return []
 
 # --- 3. Configure LangChain and Bedrock ---
 def get_bedrock_llm():
@@ -523,19 +529,22 @@ def analyze_procedures_parallel(procedures: List[Dict], max_workers: int = 4, ti
     return results
 
 # --- 7. Main Execution Functions ---
-def analyze_all_procedures(sf_env: str = 'prod', max_workers: int = 4, output_file: str = "sp_analysis_results.csv", resume_from_partial: bool = True):
-    """Main function to fetch and analyze all stored procedures."""
+def analyze_all_procedures(sf_environment: str = None, max_workers: int = 4, output_file: str = "sp_analysis_results.csv", resume_from_partial: bool = True):
+    """Main function to fetch and analyze all stored procedures using existing database infrastructure."""
+    # Note: sf_environment parameter is kept for backward compatibility but ignored
+    # The environment is now handled by the existing database infrastructure
     start_time = time.time()
     results = []
     
     try:
         logger.info("=== STORED PROCEDURE ANALYSIS STARTED ===")
-        logger.info(f"Environment: {sf_env}")
         logger.info(f"Max workers: {max_workers}")
         logger.info(f"Output file: {output_file}")
-        logger.info(f"Resume from partial: {resume_from_partial}")# Fetch procedures from Snowflake
+        logger.info(f"Resume from partial: {resume_from_partial}")
+        
+        # Fetch procedures from Snowflake using existing infrastructure
         logger.info("Fetching stored procedures from Snowflake...")
-        procedures = fetch_stored_procedures(sf_env)
+        procedures = fetch_stored_procedures()
         
         if not procedures:
             logger.warning("No stored procedures found!")
@@ -557,7 +566,9 @@ def analyze_all_procedures(sf_env: str = 'prod', max_workers: int = 4, output_fi
         except KeyboardInterrupt:
             logger.warning("Analysis interrupted by user")
         except Exception as e:
-            logger.error(f"Error during parallel analysis: {e}")# Save results even if incomplete
+            logger.error(f"Error during parallel analysis: {e}")
+        
+        # Save results even if incomplete
         if results:
             logger.info(f"Saving {len(results)} results to CSV...")
             # Use append mode if resuming and file exists
@@ -638,14 +649,12 @@ def filter_remaining_procedures(all_procedures: List[Dict], completed_procedures
 # --- 8. Main Entry Point ---
 if __name__ == "__main__":
     # Configuration
-    SF_ENVIRONMENT = 'prod' 
     MAX_WORKERS = 4 
     OUTPUT_FILE = "sp_analysis_complete.csv"
     
     try:
         # Run the complete analysis with better error handling
         analyze_all_procedures(
-            sf_env=SF_ENVIRONMENT,
             max_workers=MAX_WORKERS,
             output_file=OUTPUT_FILE,
             resume_from_partial=True

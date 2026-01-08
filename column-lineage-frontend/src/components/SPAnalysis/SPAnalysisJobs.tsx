@@ -86,13 +86,13 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
     }
   };
 
-  const handleDownloadResults = async (jobId: string) => {
-    try {
-      await SPAnalysisService.downloadResults(jobId);
-    } catch (err) {
-      console.error('Failed to download results:', err);
-    }
-  };
+  // const handleDownloadResults = async (jobId: string) => {
+  //   try {
+  //     await SPAnalysisService.downloadResults(jobId);
+  //   } catch (err) {
+  //     console.error('Failed to download results:', err);
+  //   }
+  // };
 
   const handleViewResults = async (job: SPAnalysisJob) => {
     if (job.status !== SPJobStatus.COMPLETED) return;
@@ -321,14 +321,14 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
                               <Visibility />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Download CSV">
+                          {/* <Tooltip title="Download CSV">
                             <IconButton
                               size="small"
                               onClick={() => handleDownloadResults(job.job_id)}
                             >
                               <Download />
                             </IconButton>
-                          </Tooltip>
+                          </Tooltip> */}
                         </>
                       )}
                       {(job.status === SPJobStatus.PENDING || job.status === SPJobStatus.RUNNING) && (
@@ -444,7 +444,7 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
           <Button onClick={handleCloseResultsDialog}>
             Close
           </Button>
-          {jobResults && selectedJob && (
+          {/* {jobResults && selectedJob && (
             <Button
               variant="contained"
               startIcon={<Download />}
@@ -452,7 +452,7 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
             >
               Download CSV
             </Button>
-          )}
+          )} */}
         </DialogActions>
       </Dialog>
     </Box>
