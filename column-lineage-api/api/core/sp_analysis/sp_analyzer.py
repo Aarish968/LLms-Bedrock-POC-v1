@@ -3,11 +3,13 @@ import json
 import csv
 import re
 import logging
+import hashlib
 from typing import List, Optional, Dict, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from sqlalchemy import create_engine, text
 import time
+from pathlib import Path
 
 os.environ["AWS_PROFILE"] = "bedrock"
 
@@ -172,7 +174,12 @@ def get_bedrock_llm():
     llm = ChatBedrock(
         model_id=model_id,
         client=bedrock_client,
-        model_kwargs={"temperature": 0.0, "max_tokens": 16384}  # Increased for complex procedures
+        model_kwargs={
+            "temperature": 0.0,  # Set to 0 for deterministic results
+            "max_tokens": 16384,
+            "top_p": 0.1,  # Add top_p for more consistent results
+            "top_k": 1     # Add top_k for maximum determinism
+        }
     )
    
     return llm
@@ -261,6 +268,20 @@ def has_dynamic_sql(sp_definition: str) -> bool:
 def analyze_stored_procedure(sp_definition: str, sp_name: str, sp_schema: str) -> Optional[StoredProcedureAnalysis]:
     """Analyze stored procedure and extract table-column relationships with enhanced pattern recognition."""
     try:
+        # Create a hash of the procedure definition for caching
+        procedure_hash = hashlib.md5(f"{sp_name}_{sp_schema}_{sp_definition}".encode()).hexdigest()
+        cache_file = Path(f"sp_analysis_cache_{procedure_hash}.json")
+        
+        # Check if we have cached results
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                logger.info(f"Using cached analysis for '{sp_name}' (hash: {procedure_hash[:8]})")
+                return StoredProcedureAnalysis(**cached_data)
+            except Exception as e:
+                logger.warning(f"Failed to load cached analysis for '{sp_name}': {e}")
+        
         llm = get_bedrock_llm()
         
         # Pre-analysis to gather metadata
@@ -270,10 +291,12 @@ def analyze_stored_procedure(sp_definition: str, sp_name: str, sp_schema: str) -
         cursors = detect_cursors(sp_definition)
         has_dynamic = has_dynamic_sql(sp_definition)
 
-        # Create a comprehensive system prompt
+        # Create a comprehensive system prompt with explicit instructions for consistency
         system_prompt = (
             "You are an expert SQL analyst specializing in Snowflake stored procedures. "
-            "Analyze the procedure and extract ALL table-column relationships with extreme thoroughness.\n\n"
+            "Analyze the procedure and extract ALL table-column relationships with extreme thoroughness and CONSISTENCY.\n\n"
+            "CRITICAL: You must be DETERMINISTIC and CONSISTENT in your analysis. "
+            "Always extract the SAME relationships for the SAME stored procedure code.\n\n"
             "The goal is to get all the actual tables and their columns used in the procedure, carefully resolving variables, CTEs, dynamic SQL, cursors, and complex constructs.\n\n"
 
             "VARIABLE RESOLUTION PATTERNS:\n"
@@ -296,37 +319,44 @@ def analyze_stored_procedure(sp_definition: str, sp_name: str, sp_schema: str) -
             "- PROCEDURE_CREATES_TABLE: Tables created by CREATE statements\n"
             "- USES_TABLE: General table references\n"
             
-            "IMPORTANT: For each unique table-column combination, consolidate ALL relationship types into a single entry.\n"
-            "Use comma-separated values in relationship_types field (e.g., 'USED_AS_SELECT,USED_AS_FILTER,USED_AS_JOIN').\n"
-            "Do NOT create duplicate entries for the same table-column pair.\n\n"
+            "CONSISTENCY RULES:\n"
+            "1. ALWAYS extract relationships in the SAME ORDER (alphabetical by table_name, then column_name)\n"
+            "2. For each unique table-column combination, consolidate ALL relationship types into a single entry\n"
+            "3. Use comma-separated values in relationship_types field (e.g., 'USED_AS_SELECT,USED_AS_FILTER,USED_AS_JOIN')\n"
+            "4. Do NOT create duplicate entries for the same table-column pair\n"
+            "5. Be EXHAUSTIVE but CONSISTENT - extract ALL relationships but in the SAME way every time\n\n"
             
             "Make sure to capture all the columns and tables involved in the procedure. Also deal with variable resolutions and other kinds to get all the column details as specified.\n\n"
             
-            "SPECIAL PATTERNS TO HANDLE:\n"
-            "1. IDENTIFIER(:VARIABLE) - Resolve variable to actual table name\n"
-            "2. IDENTIFIER(?) with USING() - Parameterized table references\n"
-            "3. Complex CTEs with multiple levels\n"
-            "4. LATERAL FLATTEN operations\n"
-            "5. JSON path expressions (value:field, PARSED_JSON:field)\n"
-            "6. Cursor operations (LET cursor FOR, OPEN cursor USING)\n"
-            "7. Dynamic SQL with string concatenation\n"
-            "8. Temporary tables with random names\n"
-            "9. MERGE operations with complex ON conditions\n"
-            "10. Python embedded procedures\n\n"
+            "SPECIAL PATTERNS TO HANDLE CONSISTENTLY:\n"
+            "1. IDENTIFIER(:VARIABLE) - Always resolve variable to actual table name\n"
+            "2. IDENTIFIER(?) with USING() - Always extract parameterized table references\n"
+            "3. Complex CTEs with multiple levels - Always process in declaration order\n"
+            "4. LATERAL FLATTEN operations - Always extract consistently\n"
+            "5. JSON path expressions (value:field, PARSED_JSON:field) - Always extract field names\n"
+            "6. Cursor operations (LET cursor FOR, OPEN cursor USING) - Always extract cursor query columns\n"
+            "7. Dynamic SQL with string concatenation - Always extract table/column references\n"
+            "8. Temporary tables with random names - Always identify consistently\n"
+            "9. MERGE operations with complex ON conditions - Always extract ON and UPDATE columns\n"
+            "10. Python embedded procedures - Always handle consistently\n\n"
             
-            "CRITICAL INSTRUCTIONS:\n"
-            "1. Be EXHAUSTIVE - missing relationships is worse than duplicates\n"
-            "2. For IDENTIFIER(:VAR), resolve to actual table name from variable mappings\n"
-            "3. Extract every column reference, even in complex expressions\n"
-            "4. For CTEs, treat them as temporary tables with PROCEDURE_CREATES_TABLE\n"
-            "5. For JSON paths, extract the field names as column references\n"
-            "6. For cursors, extract all columns used in the cursor query\n"
-            "7. For dynamic SQL, extract table/column references from the SQL string\n"
-            "8. For MERGE statements, extract ON condition columns and UPDATE columns\n"
-            "9. Include context information (CTE name, cursor name, etc.)\n"
-            "10. Handle mixed SQL/Python procedures appropriately\n\n"
+            "CRITICAL INSTRUCTIONS FOR CONSISTENCY:\n"
+            "1. Be EXHAUSTIVE but DETERMINISTIC - missing relationships is worse than duplicates, but results must be consistent\n"
+            "2. For IDENTIFIER(:VAR), always resolve to actual table name from variable mappings\n"
+            "3. Extract every column reference, even in complex expressions, but do it consistently\n"
+            "4. For CTEs, always treat them as temporary tables with PROCEDURE_CREATES_TABLE\n"
+            "5. For JSON paths, always extract the field names as column references\n"
+            "6. For cursors, always extract all columns used in the cursor query\n"
+            "7. For dynamic SQL, always extract table/column references from the SQL string\n"
+            "8. For MERGE statements, always extract ON condition columns and UPDATE columns\n"
+            "9. Always include context information (CTE name, cursor name, etc.)\n"
+            "10. Always handle mixed SQL/Python procedures the same way\n\n"
             
-            "Return ONLY valid JSON matching the schema. Be comprehensive and thorough."
+            "DETERMINISTIC OUTPUT REQUIREMENT:\n"
+            "Your analysis must produce IDENTICAL results for IDENTICAL input. "
+            "Sort all relationships alphabetically by table_name, then by column_name for consistency.\n\n"
+            
+            "Return ONLY valid JSON matching the schema. Be comprehensive, thorough, and CONSISTENT."
         )
 
         prompt = ChatPromptTemplate.from_messages([
@@ -349,7 +379,8 @@ def analyze_stored_procedure(sp_definition: str, sp_name: str, sp_schema: str) -
              "- Dynamic SQL construction\n"
              "- Cursor operations\n"
              "- MERGE statement complexities\n"
-             "- Temporary table creation and usage"
+             "- Temporary table creation and usage\n\n"
+             "REMEMBER: Be DETERMINISTIC and produce IDENTICAL results for IDENTICAL input!"
             ),
         ])
 
@@ -369,6 +400,18 @@ def analyze_stored_procedure(sp_definition: str, sp_name: str, sp_schema: str) -
             "temp_tables": json.dumps(temp_tables, indent=2),
             "cursors": json.dumps(cursors, indent=2)
         })
+        
+        # Sort relationships for consistency
+        if result and result.relationships:
+            result.relationships = sorted(result.relationships, key=lambda x: (x.table_name, x.column_name))
+        
+        # Cache the result for future use
+        try:
+            with open(cache_file, 'w') as f:
+                json.dump(result.model_dump(), f, indent=2)
+            logger.info(f"Cached analysis for '{sp_name}' (hash: {procedure_hash[:8]})")
+        except Exception as e:
+            logger.warning(f"Failed to cache analysis for '{sp_name}': {e}")
        
         logger.info(f"Analysis complete for '{sp_name}': {len(result.relationships)} relationships extracted")
         return result
@@ -389,11 +432,17 @@ def consolidate_relationships(relationships: List[TableColumnRelationship]) -> L
             existing_types = set(consolidated[key].relationship_types.split(','))
             new_types = set(rel.relationship_types.split(','))
             combined_types = existing_types.union(new_types)
+            # Sort relationship types for consistency
             consolidated[key].relationship_types = ','.join(sorted(combined_types))
         else:
             consolidated[key] = rel
     
-    return list(consolidated.values())
+    # Sort results by table_name, then column_name for deterministic output
+    sorted_results = []
+    for key in sorted(consolidated.keys()):
+        sorted_results.append(consolidated[key])
+    
+    return sorted_results
 def save_relationships_csv(all_analyses: List[StoredProcedureAnalysis], filename: str, append_mode: bool = False):
     """Save all relationships to CSV with enhanced metadata and consolidated entries."""
     headers = ["SP_NAME", "SP_SCHEMA", "SP_LANGUAGE", "TABLE_NAME", "COLUMN_NAME", "RELATIONSHIP_TYPES"]

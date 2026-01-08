@@ -336,6 +336,24 @@ class SPAnalysisService:
                 logger.error(f"CSV file not found: {csv_file_path}")
                 return False
             
+            # Log CSV file info
+            csv_path = Path(csv_file_path)
+            file_size = csv_path.stat().st_size
+            logger.info(f"CSV file info - Size: {file_size} bytes, Path: {csv_file_path}")
+            
+            # Quick CSV file validation
+            try:
+                with open(csv_file_path, 'r', encoding='utf-8') as f:
+                    first_line = f.readline().strip()
+                    logger.info(f"CSV first line (header): {first_line}")
+                    
+                    # Count total lines
+                    f.seek(0)
+                    total_lines = sum(1 for _ in f) - 1  # Subtract header
+                    logger.info(f"Total data rows in CSV: {total_lines}")
+            except Exception as e:
+                logger.warning(f"Could not validate CSV file: {e}")
+            
             # Check and create table if needed
             if not self._check_and_create_sp_table():
                 logger.error("Failed to ensure SP table exists")
@@ -346,6 +364,8 @@ class SPAnalysisService:
             
         except Exception as e:
             logger.error(f"Failed to insert SP CSV data to database: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
     
     def _insert_sp_csv_row_by_row(self, csv_file_path: str, job_id: UUID) -> bool:
@@ -356,6 +376,8 @@ class SPAnalysisService:
             total_csv_rows = 0
             skipped_rows = []
             
+            logger.info(f"Starting to process CSV file: {csv_file_path}")
+            
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 # Detect delimiter
                 sample = csvfile.read(1024)
@@ -363,15 +385,30 @@ class SPAnalysisService:
                 sniffer = csv.Sniffer()
                 delimiter = sniffer.sniff(sample).delimiter
                 
+                logger.info(f"Detected CSV delimiter: '{delimiter}'")
+                
                 reader = csv.DictReader(csvfile, delimiter=delimiter)
+                
+                # Log CSV headers
+                headers = reader.fieldnames
+                logger.info(f"CSV headers detected: {headers}")
                 
                 # Process each row and collect data
                 for row_num, row in enumerate(reader, 1):
                     total_csv_rows += 1
+                    
+                    # Log first few rows for debugging
+                    if row_num <= 3:
+                        logger.info(f"Sample row {row_num}: {dict(row)}")
+                    
                     try:
                         # Check if row has essential data
                         sp_name = self._get_csv_value(row, ['SP_NAME', 'sp_name', 'Sp_Name'])
                         table_name = self._get_csv_value(row, ['TABLE_NAME', 'table_name', 'Table_Name'])
+                        
+                        # More detailed logging for debugging
+                        if row_num <= 5:
+                            logger.info(f"Row {row_num} - SP_NAME: '{sp_name}', TABLE_NAME: '{table_name}'")
                         
                         # Skip rows that don't have essential data
                         if not sp_name and not table_name:
@@ -380,7 +417,18 @@ class SPAnalysisService:
                                 'reason': 'Missing essential data (sp_name and table_name)',
                                 'data': dict(row)
                             })
-                            logger.warning(f"Skipping row {row_num}: Missing essential data")
+                            logger.warning(f"Skipping row {row_num}: Missing essential data - SP_NAME: '{sp_name}', TABLE_NAME: '{table_name}'")
+                            continue
+                        
+                        # Skip rows with empty or null values in critical fields
+                        if (sp_name.strip() == '' or sp_name.lower() in ['null', 'none', '']) and \
+                           (table_name.strip() == '' or table_name.lower() in ['null', 'none', '']):
+                            skipped_rows.append({
+                                'row_number': row_num,
+                                'reason': 'Empty or null critical fields',
+                                'data': dict(row)
+                            })
+                            logger.warning(f"Skipping row {row_num}: Empty or null critical fields")
                             continue
                         
                         # Map CSV columns to database columns
@@ -394,34 +442,55 @@ class SPAnalysisService:
                         }
                         insert_data.append(row_data)
                         
+                        # Log progress every 50 rows
+                        if row_num % 50 == 0:
+                            logger.info(f"Processed {row_num} rows, {len(insert_data)} valid rows collected")
+                        
                     except Exception as row_error:
                         skipped_rows.append({
                             'row_number': row_num,
                             'reason': f'Processing error: {row_error}',
                             'data': dict(row)
                         })
-                        logger.warning(f"Failed to process row {row_num}: {row_error}, row data: {row}")
+                        logger.error(f"Failed to process row {row_num}: {row_error}")
+                        logger.error(f"Row data: {dict(row)}")
                         continue
             
-            # Log CSV processing summary
-            logger.info(f"SP CSV processing summary - Total rows: {total_csv_rows}, Processed: {len(insert_data)}, Skipped: {len(skipped_rows)}")
+            # Detailed CSV processing summary
+            logger.info(f"=== SP CSV PROCESSING SUMMARY ===")
+            logger.info(f"Total CSV rows read: {total_csv_rows}")
+            logger.info(f"Valid rows processed: {len(insert_data)}")
+            logger.info(f"Rows skipped: {len(skipped_rows)}")
+            logger.info(f"Processing success rate: {(len(insert_data)/total_csv_rows*100):.1f}%")
             
             if skipped_rows:
-                logger.warning(f"Skipped {len(skipped_rows)} rows during SP CSV processing:")
+                logger.warning(f"=== SKIPPED ROWS DETAILS ===")
                 for skipped in skipped_rows:
-                    logger.warning(f"  Row {skipped['row_number']}: {skipped['reason']}")
-                    logger.debug(f"    Data: {skipped['data']}")
+                    logger.warning(f"Row {skipped['row_number']}: {skipped['reason']}")
+                    logger.debug(f"Skipped row data: {skipped['data']}")
+            
+            # Validate we have data to insert
+            if len(insert_data) == 0:
+                logger.error("No valid data found to insert!")
+                return False
             
             # Insert data using the optimized bulk insert method
             inserted_count = self._bulk_insert_sp_data(insert_data)
             
-            # Final summary
-            logger.info(f"SP Final summary - CSV rows: {total_csv_rows}, Processed for insertion: {len(insert_data)}, Successfully inserted: {inserted_count}, Failed insertions: {len(insert_data) - inserted_count}")
+            # Final comprehensive summary
+            logger.info(f"=== SP FINAL INSERTION SUMMARY ===")
+            logger.info(f"CSV rows read: {total_csv_rows}")
+            logger.info(f"Rows processed for insertion: {len(insert_data)}")
+            logger.info(f"Rows successfully inserted: {inserted_count}")
+            logger.info(f"Rows failed to insert: {len(insert_data) - inserted_count}")
+            logger.info(f"Overall success rate: {(inserted_count/total_csv_rows*100):.1f}%")
             
             return inserted_count > 0
             
         except Exception as e:
             logger.error(f"Failed to insert SP CSV data row by row: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
     
     def _bulk_insert_sp_data(self, insert_data: list) -> int:
@@ -564,5 +633,11 @@ class SPAnalysisService:
         for key in possible_keys:
             if key in row:
                 value = row[key]
-                return value if value is not None else ""
+                # Handle None, empty string, and whitespace-only values
+                if value is not None:
+                    value_str = str(value).strip()
+                    # Return empty string for null-like values
+                    if value_str.lower() in ['null', 'none', 'n/a', 'na', '']:
+                        return ""
+                    return value_str
         return ""
