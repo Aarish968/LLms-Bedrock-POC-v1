@@ -35,6 +35,7 @@ import {
   CheckCircle,
   Error as ErrorIcon,
   Schedule,
+  PlayArrow,
 } from '@mui/icons-material';
 
 import { useRepositoryAnalysis } from '../../hooks/useRepositoryAnalysis';
@@ -46,10 +47,10 @@ import {
 import { RepositoryAnalysisService } from '../../api/repositoryAnalysisService';
 
 interface RepositoryAnalysisJobsProps {
-  onNewAnalysis?: () => void; // Made optional since we removed the button
+  onNewAnalysis?: () => void;
 }
 
-const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = () => {
+const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAnalysis }) => {
   const { jobs, isLoading, error, hasRunningJob, refreshJobs, cancelJob } = useRepositoryAnalysis();
   const [jobResults, setJobResults] = useState<RepositoryAnalysisResults | null>(null);
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
@@ -173,14 +174,25 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = () => {
             Repository Analysis Jobs
           </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<Refresh />}
-          onClick={handleManualRefresh}
-          disabled={isLoading}
-        >
-          Refresh
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={handleManualRefresh}
+            disabled={isLoading}
+          >
+            Refresh
+          </Button>
+          {onNewAnalysis && (
+            <Button
+              variant="contained"
+              startIcon={<PlayArrow />}
+              onClick={onNewAnalysis}
+            >
+              New Analysis
+            </Button>
+          )}
+        </Box>
       </Box>
 
       {jobs.length === 0 ? (
@@ -193,6 +205,15 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = () => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Use the "Start Action To Endpoint Lineage" button from the Column Lineage tab to start your first analysis.
             </Typography>
+            {onNewAnalysis && (
+              <Button
+                variant="contained"
+                startIcon={<PlayArrow />}
+                onClick={onNewAnalysis}
+              >
+                Start Analysis
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

@@ -293,7 +293,9 @@ const DashboardPage = () => {
               )}
 
               {analysisJobsSubTab === 1 && (
-                <RepositoryAnalysisJobs />
+                <RepositoryAnalysisJobs 
+                  onNewAnalysis={handleStartRepoAnalysis}
+                />
               )}
 
               {analysisJobsSubTab === 2 && (
