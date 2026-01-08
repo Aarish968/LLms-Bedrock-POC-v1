@@ -5,6 +5,8 @@ export type { AxiosRequestConfig, AxiosResponse, AxiosError } from './client';
 // Export all services
 export * from './baseViewService';
 export * from './lineageService';
+export * from './repositoryAnalysisService';
+export * from './spAnalysisService';
 
 // You can add more service exports here as you create them
 // export * from './authService';
