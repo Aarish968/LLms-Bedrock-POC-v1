@@ -46,6 +46,9 @@ class Settings:
     BASE_VIEW_SAFETY_LIMIT: int = int(os.getenv("BASE_VIEW_SAFETY_LIMIT", "10000"))
     VIEWS_SAFETY_LIMIT: int = int(os.getenv("VIEWS_SAFETY_LIMIT", "1000"))
     
+    # Database Bulk Insert Configuration
+    BULK_INSERT_BATCH_SIZE: int = int(os.getenv("BULK_INSERT_BATCH_SIZE", "100"))
+    
     # API settings
     PROJECT_NAME: str = os.getenv("PROJECT_NAME", "Column Lineage API")
     VERSION: str = os.getenv("VERSION", "0.1.0")

@@ -1,12 +1,15 @@
 """Stored procedure analysis service."""
 
 import os
-import asyncio
+import csv
 from typing import List, Optional, Dict
 from uuid import UUID
 from datetime import datetime
+from pathlib import Path
 
 from api.core.logging import get_logger
+from api.core.config import get_settings
+from api.dependencies.database import DatabaseManager
 from api.v1.models.sp_analysis import (
     SPAnalysisJob,
     SPJobStatus,
@@ -28,6 +31,17 @@ class SPAnalysisService:
         self.jobs: Dict[UUID, SPAnalysisJob] = {}
         self.results_dir = "sp_analysis_results"
         os.makedirs(self.results_dir, exist_ok=True)
+        
+        # Initialize database manager
+        self.db_manager = DatabaseManager()
+        
+        # Get settings
+        self.settings = get_settings()
+        
+        # Bulk insert configuration from settings
+        self.bulk_insert_batch_size = self.settings.BULK_INSERT_BATCH_SIZE
+        
+        logger.info(f"SP Analysis Service initialized with bulk insert batch size: {self.bulk_insert_batch_size}")
     
     def create_job(self, request: SPAnalysisRequest) -> SPAnalysisJob:
         """Create a new analysis job."""
@@ -114,7 +128,7 @@ class SPAnalysisService:
             logger.info(f"Starting SP analysis for job {job_id}")
             
             # Fetch procedures first to get count
-            procedures = fetch_stored_procedures(request.sf_environment)
+            procedures = fetch_stored_procedures()
             
             # Filter procedures if specific ones requested
             if request.procedure_names:
@@ -129,19 +143,35 @@ class SPAnalysisService:
                 total_procedures=len(procedures)
             )
             
-            # Run analysis in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                analyze_all_procedures,
-                request.sf_environment,
-                request.max_workers,
-                job.result_file,
-                request.resume_from_partial
+            # Run analysis directly in the background task (not in thread pool)
+            # This prevents blocking the main thread while still running in background
+            analyze_all_procedures(
+                sf_environment=None,  # Use existing database infrastructure
+                max_workers=request.max_workers,
+                output_file=job.result_file,
+                resume_from_partial=request.resume_from_partial
             )
             
-            # Update job as completed
-            self.update_job_status(job_id, SPJobStatus.COMPLETED)
+            # Insert CSV data into database after analysis completes
+            if Path(job.result_file).exists():
+                logger.info("SP analysis completed successfully, inserting data to database", job_id=str(job_id))
+                
+                # Insert CSV data into database
+                db_success = self._insert_csv_data_to_database(job.result_file, job_id)
+                
+                if db_success:
+                    logger.info("Data successfully inserted into SP_TABLE_COLUMN_MAPPING table", job_id=str(job_id))
+                    message = "Analysis completed successfully and data inserted into database"
+                else:
+                    logger.warning("Analysis completed but database insertion failed", job_id=str(job_id))
+                    message = "Analysis completed successfully but database insertion failed"
+                
+                # Update job as completed
+                self.update_job_status(job_id, SPJobStatus.COMPLETED, message=message)
+            else:
+                logger.error("Analysis completed but result file not found", job_id=str(job_id))
+                self.update_job_status(job_id, SPJobStatus.FAILED, error_message="Result file not found")
+            
             logger.info(f"Completed SP analysis for job {job_id}")
             
         except Exception as e:
@@ -160,11 +190,8 @@ class SPAnalysisService:
             
             logger.info(f"Analyzing single procedure: {request.procedure_name}")
             
-            # Run in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                analyze_stored_procedure,
+            # Run directly without thread pool to avoid blocking issues
+            result = analyze_stored_procedure(
                 request.procedure_definition,
                 request.procedure_name,
                 request.procedure_schema
@@ -185,13 +212,8 @@ class SPAnalysisService:
             
             logger.info(f"Fetching procedures list for environment: {sf_environment}")
             
-            # Run in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            procedures = await loop.run_in_executor(
-                None,
-                fetch_stored_procedures,
-                sf_environment
-            )
+            # Run directly without thread pool to avoid blocking issues
+            procedures = fetch_stored_procedures()
             
             return [
                 ProcedureInfo(
@@ -255,3 +277,292 @@ class SPAnalysisService:
             download_url=download_url,
             summary=summary
         )
+    
+    def _check_and_create_sp_table(self) -> bool:
+        """Check if SP_TABLE_COLUMN_MAPPING table exists, create if not."""
+        try:
+            # Check if table exists
+            check_table_query = """
+            SELECT COUNT(*) as table_count
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_SCHEMA = 'CPS_DSCI_BR' 
+            AND TABLE_NAME = 'SP_TABLE_COLUMN_MAPPING'
+            AND TABLE_CATALOG = 'CPS_DB'
+            """
+            
+            result = self.db_manager.execute_query(check_table_query)
+            table_exists = result[0][0] > 0 if result else False
+            
+            if not table_exists:
+                logger.info("Table SP_TABLE_COLUMN_MAPPING does not exist, creating it...")
+                
+                # Create table with your DDL
+                create_table_query = """
+                CREATE OR REPLACE TABLE CPS_DB.CPS_DSCI_BR.SP_TABLE_COLUMN_MAPPING (
+                    SP_NAME VARCHAR(255),
+                    SP_SCHEMA VARCHAR(255),
+                    SP_LANGUAGE VARCHAR(50),
+                    TABLE_NAME VARCHAR(255),
+                    COLUMN_NAME VARCHAR(255),
+                    RELATIONSHIP_TYPES VARCHAR(500),
+                    ANALYSIS_TIMESTAMP TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP(),
+                    CREATED_AT TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP()
+                )
+                """
+                
+                self.db_manager.execute_query(create_table_query)
+                logger.info("Table SP_TABLE_COLUMN_MAPPING created successfully")
+            else:
+                logger.info("Table SP_TABLE_COLUMN_MAPPING already exists")
+                
+                # Truncate existing data
+                truncate_query = "TRUNCATE TABLE CPS_DB.CPS_DSCI_BR.SP_TABLE_COLUMN_MAPPING"
+                self.db_manager.execute_query(truncate_query)
+                logger.info("Table SP_TABLE_COLUMN_MAPPING truncated successfully")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to check/create SP table: {e}")
+            return False
+    
+    def _insert_csv_data_to_database(self, csv_file_path: str, job_id: UUID) -> bool:
+        """Insert CSV data into SP_TABLE_COLUMN_MAPPING table."""
+        try:
+            logger.info(f"Starting to insert SP CSV data to database", job_id=str(job_id), csv_file=csv_file_path)
+            
+            # Check if CSV file exists
+            if not Path(csv_file_path).exists():
+                logger.error(f"CSV file not found: {csv_file_path}")
+                return False
+            
+            # Check and create table if needed
+            if not self._check_and_create_sp_table():
+                logger.error("Failed to ensure SP table exists")
+                return False
+            
+            # Insert CSV data row by row with bulk processing
+            return self._insert_sp_csv_row_by_row(csv_file_path, job_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to insert SP CSV data to database: {e}")
+            return False
+    
+    def _insert_sp_csv_row_by_row(self, csv_file_path: str, job_id: UUID) -> bool:
+        """Insert SP CSV data row by row with bulk processing."""
+        try:
+            # Read CSV and prepare batch insert data
+            insert_data = []
+            total_csv_rows = 0
+            skipped_rows = []
+            
+            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                # Detect delimiter
+                sample = csvfile.read(1024)
+                csvfile.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                
+                reader = csv.DictReader(csvfile, delimiter=delimiter)
+                
+                # Process each row and collect data
+                for row_num, row in enumerate(reader, 1):
+                    total_csv_rows += 1
+                    try:
+                        # Check if row has essential data
+                        sp_name = self._get_csv_value(row, ['SP_NAME', 'sp_name', 'Sp_Name'])
+                        table_name = self._get_csv_value(row, ['TABLE_NAME', 'table_name', 'Table_Name'])
+                        
+                        # Skip rows that don't have essential data
+                        if not sp_name and not table_name:
+                            skipped_rows.append({
+                                'row_number': row_num,
+                                'reason': 'Missing essential data (sp_name and table_name)',
+                                'data': dict(row)
+                            })
+                            logger.warning(f"Skipping row {row_num}: Missing essential data")
+                            continue
+                        
+                        # Map CSV columns to database columns
+                        row_data = {
+                            'sp_name': sp_name,
+                            'sp_schema': self._get_csv_value(row, ['SP_SCHEMA', 'sp_schema', 'Sp_Schema']),
+                            'sp_language': self._get_csv_value(row, ['SP_LANGUAGE', 'sp_language', 'Sp_Language']),
+                            'table_name': table_name,
+                            'column_name': self._get_csv_value(row, ['COLUMN_NAME', 'column_name', 'Column_Name']),
+                            'relationship_types': self._get_csv_value(row, ['RELATIONSHIP_TYPES', 'relationship_types', 'Relationship_Types'])
+                        }
+                        insert_data.append(row_data)
+                        
+                    except Exception as row_error:
+                        skipped_rows.append({
+                            'row_number': row_num,
+                            'reason': f'Processing error: {row_error}',
+                            'data': dict(row)
+                        })
+                        logger.warning(f"Failed to process row {row_num}: {row_error}, row data: {row}")
+                        continue
+            
+            # Log CSV processing summary
+            logger.info(f"SP CSV processing summary - Total rows: {total_csv_rows}, Processed: {len(insert_data)}, Skipped: {len(skipped_rows)}")
+            
+            if skipped_rows:
+                logger.warning(f"Skipped {len(skipped_rows)} rows during SP CSV processing:")
+                for skipped in skipped_rows:
+                    logger.warning(f"  Row {skipped['row_number']}: {skipped['reason']}")
+                    logger.debug(f"    Data: {skipped['data']}")
+            
+            # Insert data using the optimized bulk insert method
+            inserted_count = self._bulk_insert_sp_data(insert_data)
+            
+            # Final summary
+            logger.info(f"SP Final summary - CSV rows: {total_csv_rows}, Processed for insertion: {len(insert_data)}, Successfully inserted: {inserted_count}, Failed insertions: {len(insert_data) - inserted_count}")
+            
+            return inserted_count > 0
+            
+        except Exception as e:
+            logger.error(f"Failed to insert SP CSV data row by row: {e}")
+            return False
+    
+    def _bulk_insert_sp_data(self, insert_data: list) -> int:
+        """Insert SP data in batches using bulk INSERT statements for better performance."""
+        try:
+            if not insert_data:
+                logger.info("No SP data to insert")
+                return 0
+            
+            # Use bulk insert with configurable batch size
+            batch_size = self.bulk_insert_batch_size
+            total_inserted = 0
+            failed_batches = []
+            
+            # Generate current timestamp for all records
+            current_timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            
+            logger.info(f"Starting SP bulk insert of {len(insert_data)} rows in batches of {batch_size}")
+            
+            for i in range(0, len(insert_data), batch_size):
+                batch = insert_data[i:i + batch_size]
+                batch_num = i // batch_size + 1
+                
+                try:
+                    # Build bulk INSERT statement
+                    values_list = []
+                    
+                    for row in batch:
+                        # Escape and format values
+                        def escape_value(value):
+                            if value is None or value == '':
+                                return "NULL"
+                            # Convert to string and escape single quotes and backslashes
+                            escaped = str(value).replace("'", "''").replace("\\", "\\\\")
+                            return f"'{escaped}'"
+                        
+                        # Create VALUES clause for this row
+                        values_clause = f"""(
+                            {escape_value(row['sp_name'])}, 
+                            {escape_value(row['sp_schema'])}, 
+                            {escape_value(row['sp_language'])}, 
+                            {escape_value(row['table_name'])}, 
+                            {escape_value(row['column_name'])}, 
+                            {escape_value(row['relationship_types'])}, 
+                            '{current_timestamp}', 
+                            '{current_timestamp}'
+                        )"""
+                        
+                        values_list.append(values_clause)
+                    
+                    # Build complete bulk INSERT statement
+                    bulk_insert_sql = f"""
+                    INSERT INTO CPS_DB.CPS_DSCI_BR.SP_TABLE_COLUMN_MAPPING 
+                    (SP_NAME, SP_SCHEMA, SP_LANGUAGE, TABLE_NAME, COLUMN_NAME, RELATIONSHIP_TYPES, ANALYSIS_TIMESTAMP, CREATED_AT)
+                    VALUES {', '.join(values_list)}
+                    """
+                    
+                    # Execute bulk insert
+                    logger.info(f"Executing SP bulk insert for batch {batch_num} ({len(batch)} rows)")
+                    self.db_manager.execute_query(bulk_insert_sql)
+                    
+                    total_inserted += len(batch)
+                    logger.info(f"✅ Successfully inserted SP batch {batch_num}: {len(batch)} rows (Total: {total_inserted})")
+                    
+                except Exception as batch_error:
+                    logger.error(f"❌ SP Bulk insert failed for batch {batch_num}: {batch_error}")
+                    failed_batches.append({
+                        'batch_number': batch_num,
+                        'batch_size': len(batch),
+                        'error': str(batch_error)
+                    })
+                    
+                    # Fallback to individual inserts for this batch
+                    logger.info(f"Falling back to individual SP inserts for batch {batch_num}")
+                    individual_inserted = self._insert_sp_batch_individually(batch, current_timestamp, i)
+                    total_inserted += individual_inserted
+                    
+                    continue
+            
+            # Log final summary
+            logger.info(f"🎉 SP Bulk insert completed!")
+            logger.info(f"   Total rows processed: {len(insert_data)}")
+            logger.info(f"   Successfully inserted: {total_inserted}")
+            logger.info(f"   Failed batches: {len(failed_batches)}")
+            logger.info(f"   Success rate: {(total_inserted/len(insert_data)*100):.1f}%")
+            
+            if failed_batches:
+                logger.warning(f"Failed SP batches summary:")
+                for failed_batch in failed_batches:
+                    logger.warning(f"  Batch {failed_batch['batch_number']}: {failed_batch['error']}")
+            
+            return total_inserted
+            
+        except Exception as e:
+            logger.error(f"Failed to perform SP bulk insert: {e}")
+            return total_inserted
+    
+    def _insert_sp_batch_individually(self, batch: list, current_timestamp: str, batch_start_index: int) -> int:
+        """Fallback method to insert SP batch row by row when bulk insert fails."""
+        individual_inserted = 0
+        
+        for row_index, row in enumerate(batch):
+            global_row_num = batch_start_index + row_index + 1
+            try:
+                # Escape values
+                def escape_value(value):
+                    if value is None or value == '':
+                        return "NULL"
+                    escaped = str(value).replace("'", "''").replace("\\", "\\\\")
+                    return f"'{escaped}'"
+                
+                # Build individual INSERT statement
+                insert_sql = f"""
+                INSERT INTO CPS_DB.CPS_DSCI_BR.SP_TABLE_COLUMN_MAPPING 
+                (SP_NAME, SP_SCHEMA, SP_LANGUAGE, TABLE_NAME, COLUMN_NAME, RELATIONSHIP_TYPES, ANALYSIS_TIMESTAMP, CREATED_AT)
+                VALUES (
+                    {escape_value(row['sp_name'])}, 
+                    {escape_value(row['sp_schema'])}, 
+                    {escape_value(row['sp_language'])}, 
+                    {escape_value(row['table_name'])}, 
+                    {escape_value(row['column_name'])}, 
+                    {escape_value(row['relationship_types'])}, 
+                    '{current_timestamp}', 
+                    '{current_timestamp}'
+                )
+                """
+                
+                self.db_manager.execute_query(insert_sql)
+                individual_inserted += 1
+                
+            except Exception as row_error:
+                logger.error(f"❌ SP Individual insert failed for row {global_row_num}: {row_error}")
+                continue
+        
+        logger.info(f"SP Individual fallback completed: {individual_inserted}/{len(batch)} rows inserted")
+        return individual_inserted
+    
+    def _get_csv_value(self, row: dict, possible_keys: list) -> str:
+        """Get value from CSV row using possible column name variations."""
+        for key in possible_keys:
+            if key in row:
+                value = row[key]
+                return value if value is not None else ""
+        return ""
