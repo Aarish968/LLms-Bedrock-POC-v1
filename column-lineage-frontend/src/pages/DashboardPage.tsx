@@ -12,24 +12,29 @@ import {
   Tabs,
   Tab,
 } from '@mui/material'
-import { Search, PlayArrow, Person, Work, Analytics, Code } from '@mui/icons-material'
+import { Search, PlayArrow, Person, Work, Analytics, Code, Storage } from '@mui/icons-material'
 
 import ColumnLineageTable from '../components/ColumnLineageTable/ColumnLineageTable'
 import LineageAnalysisDialog from '../components/LineageAnalysis/LineageAnalysisDialog'
 import JobsDashboard from '../components/LineageAnalysis/JobsDashboard'
 import { RepositoryAnalysisDialog, RepositoryAnalysisJobs } from '../components/RepositoryAnalysis'
+import { SPAnalysisDialog, SPAnalysisJobs } from '../components/SPAnalysis'
 import useUserContext from '@/hooks/users/useUserContext'
 import useRepositoryAnalysis from '../hooks/useRepositoryAnalysis'
+import useSPAnalysis from '../hooks/useSPAnalysis'
 import { RepositoryAnalysisResponse, RepositoryAnalysisJob, AnalysisStatus } from '../types/repositoryAnalysis'
+import { SPAnalysisResponse } from '../types/spAnalysis'
 
 const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
   const [repoAnalysisDialogOpen, setRepoAnalysisDialogOpen] = useState(false)
+  const [spAnalysisDialogOpen, setSPAnalysisDialogOpen] = useState(false)
   const [currentTab, setCurrentTab] = useState(0)
   const [analysisJobsSubTab, setAnalysisJobsSubTab] = useState(0)
   const user = useUserContext()
   const { hasRunningJob: hasRunningRepoJob, addJobToState } = useRepositoryAnalysis()
+  const { hasRunningJob: hasRunningSPJob } = useSPAnalysis()
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
@@ -44,6 +49,13 @@ const DashboardPage = () => {
       // Show warning but still allow opening dialog for better UX
     }
     setRepoAnalysisDialogOpen(true)
+  }
+
+  const handleStartSPAnalysis = () => {
+    if (hasRunningSPJob) {
+      // Show warning but still allow opening dialog for better UX
+    }
+    setSPAnalysisDialogOpen(true)
   }
 
   const handleAnalysisStarted = () => {
@@ -71,12 +83,23 @@ const DashboardPage = () => {
     setRepoAnalysisDialogOpen(false)
   }
 
+  const handleSPAnalysisStarted = (_response: SPAnalysisResponse) => {
+    // Switch to Analysis Jobs tab and SP Analysis sub-tab when SP analysis starts
+    setCurrentTab(1)
+    setAnalysisJobsSubTab(2)
+    setSPAnalysisDialogOpen(false)
+  }
+
   const handleCloseAnalysisDialog = () => {
     setAnalysisDialogOpen(false)
   }
 
   const handleCloseRepoAnalysisDialog = () => {
     setRepoAnalysisDialogOpen(false)
+  }
+
+  const handleCloseSPAnalysisDialog = () => {
+    setSPAnalysisDialogOpen(false)
   }
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -218,6 +241,23 @@ const DashboardPage = () => {
                     Analyze action to endpoint analysis
                   </Typography>
                 </Box>
+
+                <Box sx={{ textAlign: 'center' }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<Storage />}
+                    onClick={handleStartSPAnalysis}
+                    disabled={hasRunningSPJob}
+                    title={hasRunningSPJob ? 'Please wait for current SP analysis to complete' : 'Start stored procedure analysis'}
+                    sx={{ mb: 1 }}
+                  >
+                    Start SP Analysis
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Analyze stored procedure relationships
+                  </Typography>
+                </Box>
               </Box>
             </Box>
           )}
@@ -237,6 +277,11 @@ const DashboardPage = () => {
                     label="Repository Analyze Job" 
                     iconPosition="start"
                   />
+                  <Tab 
+                    icon={<Storage />} 
+                    label="SP Analysis Jobs" 
+                    iconPosition="start"
+                  />
                 </Tabs>
               </Box>
 
@@ -249,6 +294,12 @@ const DashboardPage = () => {
 
               {analysisJobsSubTab === 1 && (
                 <RepositoryAnalysisJobs />
+              )}
+
+              {analysisJobsSubTab === 2 && (
+                <SPAnalysisJobs 
+                  onNewAnalysis={handleStartSPAnalysis}
+                />
               )}
             </Box>
           )}
@@ -267,6 +318,13 @@ const DashboardPage = () => {
         open={repoAnalysisDialogOpen}
         onClose={handleCloseRepoAnalysisDialog}
         onAnalysisStarted={handleRepoAnalysisStarted}
+      />
+
+      {/* SP Analysis Dialog */}
+      <SPAnalysisDialog
+        open={spAnalysisDialogOpen}
+        onClose={handleCloseSPAnalysisDialog}
+        onAnalysisStarted={handleSPAnalysisStarted}
       />
     </Box>
   )
