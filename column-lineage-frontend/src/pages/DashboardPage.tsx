@@ -246,13 +246,13 @@ const DashboardPage = () => {
                   <Button
                     variant="contained"
                     size="large"
-                    startIcon={<Storage />}
+                    startIcon={<PlayArrow />}
                     onClick={handleStartSPAnalysis}
                     disabled={hasRunningSPJob}
                     title={hasRunningSPJob ? 'Please wait for current SP analysis to complete' : 'Start stored procedure analysis'}
                     sx={{ mb: 1 }}
                   >
-                    Start SP Analysis
+                    Start SP Lineage
                   </Button>
                   <Typography variant="caption" color="text.secondary" display="block">
                     Analyze stored procedure relationships
@@ -279,7 +279,7 @@ const DashboardPage = () => {
                   />
                   <Tab 
                     icon={<Storage />} 
-                    label="SP Analysis Jobs" 
+                    label="Start SP Lineage" 
                     iconPosition="start"
                   />
                 </Tabs>
