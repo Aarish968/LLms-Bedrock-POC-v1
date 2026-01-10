@@ -205,7 +205,7 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAn
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Use the "Start Action To Endpoint Lineage" button from the Column Lineage tab to start your first analysis.
             </Typography>
-            {onNewAnalysis && (
+            {/* {onNewAnalysis && (
               <Button
                 variant="contained"
                 startIcon={<PlayArrow />}
@@ -213,7 +213,7 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAn
               >
                 Start Analysis
               </Button>
-            )}
+            )} */}
           </CardContent>
         </Card>
       ) : (

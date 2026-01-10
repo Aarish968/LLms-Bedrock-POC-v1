@@ -222,7 +222,7 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Start your first stored procedure analysis to see jobs here.
             </Typography>
-            {onNewAnalysis && (
+            {/* {onNewAnalysis && (
               <Button
                 variant="contained"
                 startIcon={<PlayArrow />}
@@ -230,7 +230,7 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
               >
                 Start Analysis
               </Button>
-            )}
+            )} */}
           </CardContent>
         </Card>
       )}
@@ -331,7 +331,7 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
                           </Tooltip> */}
                         </>
                       )}
-                      {(job.status === SPJobStatus.PENDING || job.status === SPJobStatus.RUNNING) && (
+                      {/* {(job.status === SPJobStatus.PENDING || job.status === SPJobStatus.RUNNING) && (
                         <Tooltip title="Cancel Job">
                           <IconButton
                             size="small"
@@ -341,7 +341,7 @@ const SPAnalysisJobs: React.FC<SPAnalysisJobsProps> = ({ onNewAnalysis }) => {
                             <Cancel />
                           </IconButton>
                         </Tooltip>
-                      )}
+                      )} */}
                     </Box>
                   </TableCell>
                 </TableRow>
