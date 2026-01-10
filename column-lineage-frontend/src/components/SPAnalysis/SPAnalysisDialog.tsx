@@ -198,7 +198,7 @@ const SPAnalysisDialog: React.FC<SPAnalysisDialogProps> = ({
       <DialogTitle>
         <Box display="flex" alignItems="center" justifyContent="space-between">
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Storage color="primary" />
+            {/* <Storage color="primary" /> */}
             <Typography variant="h6">
               Stored Procedure Analysis
             </Typography>

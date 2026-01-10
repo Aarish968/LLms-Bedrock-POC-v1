@@ -269,17 +269,17 @@ const DashboardPage = () => {
                 <Tabs value={analysisJobsSubTab} onChange={handleAnalysisJobsSubTabChange}>
                   <Tab 
                     icon={<Work />} 
-                    label="Column Lineage" 
+                    label="View Analysis Jobs" 
                     iconPosition="start"
                   />
                   <Tab 
                     icon={<Code />} 
-                    label="Repository Analyze Job" 
+                    label="Action to Endpoint Analysis job" 
                     iconPosition="start"
                   />
                   <Tab 
                     icon={<Storage />} 
-                    label="Start SP Lineage" 
+                    label="Start SP Lineage Jobs" 
                     iconPosition="start"
                   />
                 </Tabs>
