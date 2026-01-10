@@ -11,7 +11,7 @@ from typing import Dict, Optional
 from uuid import UUID
 
 from api.core.logging import get_logger
-from api.core.repo_analysis.repository_cloning_service import RepositoryCloningService
+from api.core.action_to_endpoint_analysis.repository_cloning_service import RepositoryCloningService
 from api.dependencies.database import DatabaseManager
 from api.v1.models.repository_analysis import (
     AnalysisStatus,
@@ -36,7 +36,7 @@ class RepositoryAnalysisService:
         self.backend_clone_dir = self.base_clone_dir / "Backend"
         
         # Directory for analysis results
-        self.analysis_results_dir = Path("Repo_Analyze")
+        self.analysis_results_dir = Path("action_to_endpoint_analysis_results")
         self.analysis_results_dir.mkdir(exist_ok=True)
         
         # Default repository names from environment variables
@@ -151,7 +151,7 @@ class RepositoryAnalysisService:
             logger.info(f"Running main.py analysis script", job_id=str(job_id))
             
             # Get the path to the main.py script
-            main_script_path = Path(__file__).parent.parent.parent / "core" / "repo_analysis" / "main.py"
+            main_script_path = Path(__file__).parent.parent.parent / "core" / "action_to_endpoint_analysis" / "main.py"
             
             if not main_script_path.exists():
                 logger.error(f"main.py script not found: {main_script_path}")
@@ -390,7 +390,7 @@ class RepositoryAnalysisService:
             
             # Auto-generate output filename with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"repo_analysis_{timestamp}.csv"
+            output_filename = f"action_to_endpoint_analysis_{timestamp}.csv"
             output_path = self.analysis_results_dir / output_filename
             
             logger.info(f"Auto-generated output filename: {output_filename}")

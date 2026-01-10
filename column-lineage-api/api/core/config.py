@@ -30,7 +30,7 @@ class Settings:
     # Auto-save settings
     AUTO_SAVE_RESULTS: bool = os.getenv("AUTO_SAVE_RESULTS", "true").lower() == "true"
     AUTO_SAVE_TO_DATABASE: bool = os.getenv("AUTO_SAVE_TO_DATABASE", "true").lower() == "true"
-    RESULTS_DIRECTORY: str = os.getenv("RESULTS_DIRECTORY", "analysis_results")
+    RESULTS_DIRECTORY: str = os.getenv("RESULTS_DIRECTORY", "view_analysis_results")
     
     # Auto-save target configuration
     AUTO_SAVE_TARGET_DATABASE: str = os.getenv("AUTO_SAVE_TARGET_DATABASE", "")

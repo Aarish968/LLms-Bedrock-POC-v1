@@ -12,10 +12,10 @@ class DirectAnalysisRunner:
     """Run analysis directly by importing and calling functions."""
     
     def __init__(self):
-        # Add the repo_analysis directory to Python path
-        repo_analysis_path = Path(__file__).parent.parent.parent / "core" / "repo_analysis"
-        if str(repo_analysis_path) not in sys.path:
-            sys.path.insert(0, str(repo_analysis_path))
+        # Add the action_to_endpoint_analysis directory to Python path
+        action_to_endpoint_analysis_path = Path(__file__).parent.parent.parent / "core" / "action_to_endpoint_analysis"
+        if str(action_to_endpoint_analysis_path) not in sys.path:
+            sys.path.insert(0, str(action_to_endpoint_analysis_path))
     
     async def run_analysis(
         self, 

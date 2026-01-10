@@ -270,7 +270,12 @@ def analyze_stored_procedure(sp_definition: str, sp_name: str, sp_schema: str) -
     try:
         # Create a hash of the procedure definition for caching
         procedure_hash = hashlib.md5(f"{sp_name}_{sp_schema}_{sp_definition}".encode()).hexdigest()
-        cache_file = Path(f"sp_analysis_cache_{procedure_hash}.json")
+        
+        # Create cache directory if it doesn't exist
+        cache_dir = Path("sp_analysis_cache")
+        cache_dir.mkdir(exist_ok=True)
+        
+        cache_file = cache_dir / f"sp_analysis_cache_{procedure_hash}.json"
         
         # Check if we have cached results
         if cache_file.exists():

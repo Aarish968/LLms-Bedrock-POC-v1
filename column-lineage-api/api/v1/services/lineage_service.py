@@ -19,7 +19,7 @@ from api.v1.models.lineage import (
     ExpressionType,
 )
 from api.v1.services.job_manager import JobManager
-from api.core.analysis import process_all_views, save_results_to_csv, get_analysis_summary
+from api.core.view_analysis import process_all_views, save_results_to_csv, get_analysis_summary
 from api.core.config import get_settings
 
 class LineageService(LoggerMixin):

@@ -280,7 +280,7 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAn
                           </Tooltip>
                         )}
                         
-                        {(job.status === AnalysisStatus.PENDING ||
+                        {/* {(job.status === AnalysisStatus.PENDING ||
                           job.status === AnalysisStatus.CLONING ||
                           job.status === AnalysisStatus.RUNNING) && (
                           <Tooltip title="Cancel Job">
@@ -292,7 +292,7 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAn
                               <Cancel />
                             </IconButton>
                           </Tooltip>
-                        )}
+                        )} */}
                       </Box>
                     </TableCell>
                   </TableRow>
