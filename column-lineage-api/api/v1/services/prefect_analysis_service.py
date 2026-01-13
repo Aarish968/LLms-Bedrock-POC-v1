@@ -39,9 +39,6 @@ class PrefectAnalysisService:
         self.analysis_results_dir = Path("prefect_analysis_results")
         self.analysis_results_dir.mkdir(exist_ok=True)
         
-        # Credentials file for AWS CodeCommit
-        self.credentials_file = "credentials.txt"
-        
         # Initialize database manager
         self.db_manager = DatabaseManager()
         
@@ -86,19 +83,44 @@ class PrefectAnalysisService:
         
         try:
             # Initialize Prefect repo cloner
-            cloner = PrefectRepoCloner(credentials_file=self.credentials_file)
+            cloner = PrefectRepoCloner()
             
             # Setup AWS credentials
             cloner.setup_aws_credentials()
             
             # Get all repositories
             if request.specific_repos:
-                all_repos = [{'repositoryName': name} for name in request.specific_repos]
-                logger.info(f"Using provided repository list: {len(all_repos)} repositories")
+                # Validate repository names
+                suspicious_names = {'string', 'str', 'name', 'test', 'temp', 'tmp', 'null', 'undefined'}
+                valid_repos = []
+                for repo_name in request.specific_repos:
+                    if repo_name and repo_name.lower() not in suspicious_names:
+                        valid_repos.append(repo_name)
+                    else:
+                        logger.warning(f"Skipping invalid repository name in request: {repo_name}")
+                
+                if not valid_repos:
+                    logger.info("No valid repositories in specific_repos, switching to auto-discovery")
+                    all_repos = cloner.get_all_repositories_via_boto3()
+                    if not all_repos:
+                        raise Exception("No repositories found. Please check your AWS configuration.")
+                else:
+                    all_repos = [{'repositoryName': name} for name in valid_repos]
+                    logger.info(f"Using provided repository list: {len(all_repos)} repositories")
             else:
                 all_repos = cloner.get_all_repositories_via_boto3()
                 if not all_repos:
                     raise Exception("No repositories found. Please check your AWS configuration.")
+                
+                # Debug: Log all discovered repositories
+                logger.info(f"Discovered {len(all_repos)} repositories from AWS CodeCommit:")
+                for i, repo in enumerate(all_repos[:10], 1):  # Log first 10 repos
+                    repo_name = repo.get('repositoryName', 'UNKNOWN')
+                    logger.info(f"  {i}. {repo_name}")
+                    if 'string' in repo_name.lower():
+                        logger.warning(f"Found suspicious repository name: {repo}")
+                if len(all_repos) > 10:
+                    logger.info(f"  ... and {len(all_repos) - 10} more repositories")
             
             prefect_repos = set()
             repository_info = []

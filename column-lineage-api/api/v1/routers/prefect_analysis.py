@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, 
 from fastapi.responses import FileResponse
 
 from api.core.logging import get_logger
-from api.dependencies.auth import get_current_active_user, User
+# from api.dependencies.auth import get_current_active_user, User  # Disabled authentication
 from api.v1.models.prefect_analysis import (
     PrefectAnalysisRequest,
     PrefectAnalysisResponse,
@@ -32,12 +32,14 @@ prefect_analysis_service = PrefectAnalysisService()
 async def start_prefect_analysis(
     request: PrefectAnalysisRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """Start Prefect repository analysis."""
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
+    
     logger.info(
         "Starting Prefect repository analysis request",
-        user_id=current_user.id,
+        user_id=user_id,
         sf_environment=request.sf_environment,
         max_workers=request.max_workers,
         target_directory=request.target_directory,
@@ -65,7 +67,7 @@ async def start_prefect_analysis(
             prefect_analysis_service.run_analysis,
             job_id,
             request,
-            current_user.id,
+            user_id,
         )
         
         return PrefectAnalysisResponse(
@@ -77,7 +79,7 @@ async def start_prefect_analysis(
         )
         
     except Exception as e:
-        logger.error("Failed to start Prefect analysis", error=str(e), user_id=current_user.id)
+        logger.error("Failed to start Prefect analysis", error=str(e), user_id=user_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start analysis: {str(e)}",
@@ -87,10 +89,11 @@ async def start_prefect_analysis(
 @router.get("/status/{job_id}", response_model=PrefectAnalysisJob)
 async def get_analysis_status(
     job_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """Get Prefect analysis job status."""
-    logger.info("Getting Prefect analysis job status", job_id=str(job_id), user_id=current_user.id)
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
+    logger.info("Getting Prefect analysis job status", job_id=str(job_id), user_id=user_id)
     
     job = prefect_analysis_service.get_job(job_id)
     if not job:
@@ -106,12 +109,13 @@ async def get_analysis_status(
 async def list_analysis_jobs(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """List Prefect analysis jobs."""
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
     logger.info(
         "Listing Prefect analysis jobs",
-        user_id=current_user.id,
+        user_id=user_id,
         limit=limit,
         offset=offset,
     )
@@ -121,7 +125,7 @@ async def list_analysis_jobs(
         return jobs
         
     except Exception as e:
-        logger.error("Failed to list Prefect analysis jobs", error=str(e), user_id=current_user.id)
+        logger.error("Failed to list Prefect analysis jobs", error=str(e), user_id=user_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve jobs: {str(e)}",
@@ -131,10 +135,11 @@ async def list_analysis_jobs(
 @router.delete("/jobs/{job_id}")
 async def cancel_analysis_job(
     job_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """Cancel a Prefect analysis job."""
-    logger.info("Cancelling Prefect analysis job", job_id=str(job_id), user_id=current_user.id)
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
+    logger.info("Cancelling Prefect analysis job", job_id=str(job_id), user_id=user_id)
     
     job = prefect_analysis_service.get_job(job_id)
     if not job:
@@ -172,10 +177,11 @@ async def cancel_analysis_job(
 @router.get("/results/{job_id}", response_model=PrefectAnalysisResults)
 async def get_analysis_results(
     job_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """Get Prefect analysis results."""
-    logger.info("Getting Prefect analysis results", job_id=str(job_id), user_id=current_user.id)
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
+    logger.info("Getting Prefect analysis results", job_id=str(job_id), user_id=user_id)
     
     job = prefect_analysis_service.get_job(job_id)
     if not job:
@@ -213,10 +219,11 @@ async def get_analysis_results(
 @router.get("/results/{job_id}/download")
 async def download_results(
     job_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """Download Prefect analysis results CSV file."""
-    logger.info("Downloading Prefect analysis results", job_id=str(job_id), user_id=current_user.id)
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
+    logger.info("Downloading Prefect analysis results", job_id=str(job_id), user_id=user_id)
     
     job = prefect_analysis_service.get_job(job_id)
     if not job:
@@ -249,15 +256,16 @@ async def get_database_results(
     job_id: Optional[str] = Query(None, description="Filter by specific job ID"),
     limit: Optional[int] = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
     offset: int = Query(0, ge=0, description="Number of records to skip"),
-    current_user: User = Depends(get_current_active_user),
+    # current_user: User = Depends(get_current_active_user),
 ):
     """Get Prefect analysis results from database table."""
+    user_id = "anonymous_user"  # Placeholder since authentication is disabled
     logger.info(
         "Getting Prefect database results",
         job_id=job_id,
         limit=limit,
         offset=offset,
-        user_id=current_user.id
+        user_id=user_id
     )
     
     try:
