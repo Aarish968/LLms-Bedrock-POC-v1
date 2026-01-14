@@ -1,0 +1,13 @@
+.idea
+.run
+.venv
+venv
+build
+*.egg-info
+**/__pycache__
+**/*.pyc
+tests
+scripts
+Dockerfile
+README.md
+uv.lock
