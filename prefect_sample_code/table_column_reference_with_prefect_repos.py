@@ -3,7 +3,7 @@
 Script to analyze table and column references in prefect_repos directory.
 This version resolves SQL aliases to map columns to their ACTUAL source tables.
 
-first colne the prefect repos using: prefect_repo_clone_service.py inside the core/prefect_repo_analysis
+first colne the prefect repos using: clone_prefect_repos.py
 The script connects to Snowflake to get table and column metadata,
 then scans through code files to find SQL queries, resolves any table aliases,
 run using: uv run python table_column_reference_with_prefect_repos.py
@@ -18,10 +18,10 @@ from pathlib import Path
 from typing import List, Tuple, Set, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
-# Import existing database connection utilities
-from api.dependencies.database import get_database_engine, DatabaseManager
+# Import Snowflake connection utilities
+from common import sec
 
 # Configure logging
 logging.basicConfig(
@@ -35,55 +35,48 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class SnowflakeDataExtractor:
-    """Handles Snowflake connection and data extraction using centralized database infrastructure"""
+    """Handles Snowflake connection and data extraction"""
     
     def __init__(self, sf_env: str = 'prod'):
-        # Note: sf_env parameter is kept for backward compatibility but ignored
-        # The environment is now handled by the existing database infrastructure
         self.sf_env = sf_env
         self.engine = None
-        self.db_manager = None
         
+    def _get_correct_schema(self) -> str:
+        """Get the correct schema based on environment."""
+        if self.sf_env == 'prod':
+            return 'CPS_DSCI_BR'
+        else:
+            return 'CPS_DSCI_BR'
+    
+    def _check_env(self) -> str:
+        """Check and return the correct connection name for environment."""
+        if self.sf_env == "dev":
+            return "dev_cps_dsci_etl_svc"
+        elif self.sf_env == "stage":
+            return "stg_cps_dsci_etl_svc"
+        elif self.sf_env == "prod":
+            return "prd_cps_dsci_etl_svc"
+        else:
+            return self.sf_env
+    
     def create_connection(self):
-        """Create Snowflake connection using existing database infrastructure."""
+        """Create Snowflake connection engine."""
         try:
-            # Use the existing database engine from your infrastructure
-            self.engine = get_database_engine()
-            
-            if self.engine is None:
-                logger.warning("Database engine is None - running in mock mode")
-                return
-            
-            # Test the connection
-            with self.engine.connect() as conn:
-                result = conn.execute(text("SELECT CURRENT_VERSION()"))
-                version = result.fetchone()[0]
-                logger.info(f"Successfully connected to Snowflake version: {version}")
-            
-            # Also initialize DatabaseManager for query execution
-            self.db_manager = DatabaseManager()
-            
-            if self.db_manager.mock_mode:
-                logger.warning("DatabaseManager is in mock mode - no actual database connection")
-            else:
-                logger.info("DatabaseManager initialized successfully")
-                
+            cn = self._check_env()
+            correct_schema = self._get_correct_schema()
+            self.engine = create_engine(
+                sec.get_sf_pw(cn, 'CPS_DSCI_ETL_EXT2_WH', correct_schema)
+            )
+            logger.info(f"Successfully created Snowflake connection for {self.sf_env} environment")
+            logger.info(f"Using schema: {correct_schema}")
         except Exception as e:
             logger.error(f"Failed to create Snowflake connection: {e}")
             raise
     
     def fetch_base_table_data(self) -> pd.DataFrame:
-        """Fetch data from BASE_TABLE using existing database infrastructure."""
+        """Fetch data from BASE_TABLE."""
         if not self.engine:
             self.create_connection()
-        
-        # If in mock mode, return sample data
-        if self.db_manager and self.db_manager.mock_mode:
-            logger.info("Running in mock mode - returning sample BASE_TABLE data")
-            return pd.DataFrame({
-                'table_name': ['SAMPLE_TABLE_1', 'SAMPLE_TABLE_2'],
-                'column_names': ['COLUMN_A', 'COLUMN_B']
-            })
             
         sql = """
         SELECT * FROM CPS_DSCI_BR.BASE_TABLE
@@ -100,17 +93,9 @@ class SnowflakeDataExtractor:
             raise
     
     def fetch_view_table_data(self) -> pd.DataFrame:
-        """Fetch data from VIEW_TABLE using existing database infrastructure."""
+        """Fetch data from VIEW_TABLE."""
         if not self.engine:
             self.create_connection()
-        
-        # If in mock mode, return sample data
-        if self.db_manager and self.db_manager.mock_mode:
-            logger.info("Running in mock mode - returning sample VIEW_TABLE data")
-            return pd.DataFrame({
-                'view_name': ['SAMPLE_VIEW_1', 'SAMPLE_VIEW_2'],
-                'column_names': ['COLUMN_X', 'COLUMN_Y']
-            })
             
         sql = """
         SELECT * FROM CPS_DSCI_BR.VIEW_TABLE

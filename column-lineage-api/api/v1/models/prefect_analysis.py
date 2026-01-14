@@ -38,6 +38,14 @@ class PrefectAnalysisRequest(BaseModel):
         default=False,
         description="Skip naming convention filtering"
     )
+    skip_discovery: bool = Field(
+        default=False,  # Changed to False to match reference behavior - check all repos for content
+        description="Skip content-based discovery and only use naming patterns (much faster but less comprehensive)"
+    )
+    clone_all_repos: bool = Field(
+        default=False,
+        description="Clone ALL repositories regardless of Prefect patterns (slower but comprehensive)"
+    )
     specific_repos: Optional[List[str]] = Field(
         default=None,
         description="Specific repository names to analyze (if None, discover all Prefect repos)"

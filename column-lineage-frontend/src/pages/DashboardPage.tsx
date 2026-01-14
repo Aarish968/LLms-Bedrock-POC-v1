@@ -19,22 +19,27 @@ import LineageAnalysisDialog from '../components/LineageAnalysis/LineageAnalysis
 import JobsDashboard from '../components/LineageAnalysis/JobsDashboard'
 import { RepositoryAnalysisDialog, RepositoryAnalysisJobs } from '../components/RepositoryAnalysis'
 import { SPAnalysisDialog, SPAnalysisJobs } from '../components/SPAnalysis'
+import { PrefectAnalysisDialog, PrefectAnalysisJobs } from '../components/PrefectAnalysis'
 import useUserContext from '@/hooks/users/useUserContext'
 import useRepositoryAnalysis from '../hooks/useRepositoryAnalysis'
 import useSPAnalysis from '../hooks/useSPAnalysis'
+import usePrefectAnalysis from '../hooks/usePrefectAnalysis'
 import { RepositoryAnalysisResponse, RepositoryAnalysisJob, AnalysisStatus } from '../types/repositoryAnalysis'
 import { SPAnalysisResponse } from '../types/spAnalysis'
+import { PrefectAnalysisResponse } from '../types/prefectAnalysis'
 
 const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
   const [repoAnalysisDialogOpen, setRepoAnalysisDialogOpen] = useState(false)
   const [spAnalysisDialogOpen, setSPAnalysisDialogOpen] = useState(false)
+  const [prefectAnalysisDialogOpen, setPrefectAnalysisDialogOpen] = useState(false)
   const [currentTab, setCurrentTab] = useState(0)
   const [analysisJobsSubTab, setAnalysisJobsSubTab] = useState(0)
   const user = useUserContext()
   const { hasRunningJob: hasRunningRepoJob, addJobToState } = useRepositoryAnalysis()
   const { hasRunningJob: hasRunningSPJob } = useSPAnalysis()
+  const { hasRunningJob: hasRunningPrefectJob } = usePrefectAnalysis()
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
@@ -90,6 +95,20 @@ const DashboardPage = () => {
     setSPAnalysisDialogOpen(false)
   }
 
+  const handleStartPrefectAnalysis = () => {
+    if (hasRunningPrefectJob) {
+      // Show warning but still allow opening dialog for better UX
+    }
+    setPrefectAnalysisDialogOpen(true)
+  }
+
+  const handlePrefectAnalysisStarted = (_response: PrefectAnalysisResponse) => {
+    // Switch to Analysis Jobs tab and Prefect Analysis sub-tab when Prefect analysis starts
+    setCurrentTab(1)
+    setAnalysisJobsSubTab(3)
+    setPrefectAnalysisDialogOpen(false)
+  }
+
   const handleCloseAnalysisDialog = () => {
     setAnalysisDialogOpen(false)
   }
@@ -100,6 +119,10 @@ const DashboardPage = () => {
 
   const handleCloseSPAnalysisDialog = () => {
     setSPAnalysisDialogOpen(false)
+  }
+
+  const handleClosePrefectAnalysisDialog = () => {
+    setPrefectAnalysisDialogOpen(false)
   }
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -258,6 +281,24 @@ const DashboardPage = () => {
                     Analyze stored procedure relationships
                   </Typography>
                 </Box>
+
+                <Box sx={{ textAlign: 'center' }}>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    size="large"
+                    startIcon={<PlayArrow />}
+                    onClick={handleStartPrefectAnalysis}
+                    disabled={hasRunningPrefectJob}
+                    title={hasRunningPrefectJob ? 'Please wait for current Prefect analysis to complete' : 'Start Prefect repository analysis'}
+                    sx={{ mb: 1 }}
+                  >
+                    Start Prefect Analysis
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Analyze Prefect flow repositories
+                  </Typography>
+                </Box>
               </Box>
             </Box>
           )}
@@ -282,6 +323,11 @@ const DashboardPage = () => {
                     label="Start SP Lineage Jobs" 
                     iconPosition="start"
                   />
+                  <Tab 
+                    icon={<Code />} 
+                    label="Prefect Analysis Jobs" 
+                    iconPosition="start"
+                  />
                 </Tabs>
               </Box>
 
@@ -301,6 +347,12 @@ const DashboardPage = () => {
               {analysisJobsSubTab === 2 && (
                 <SPAnalysisJobs 
                   onNewAnalysis={handleStartSPAnalysis}
+                />
+              )}
+
+              {analysisJobsSubTab === 3 && (
+                <PrefectAnalysisJobs 
+                  onNewAnalysis={handleStartPrefectAnalysis}
                 />
               )}
             </Box>
@@ -327,6 +379,13 @@ const DashboardPage = () => {
         open={spAnalysisDialogOpen}
         onClose={handleCloseSPAnalysisDialog}
         onAnalysisStarted={handleSPAnalysisStarted}
+      />
+
+      {/* Prefect Analysis Dialog */}
+      <PrefectAnalysisDialog
+        open={prefectAnalysisDialogOpen}
+        onClose={handleClosePrefectAnalysisDialog}
+        onAnalysisStarted={handlePrefectAnalysisStarted}
       />
     </Box>
   )

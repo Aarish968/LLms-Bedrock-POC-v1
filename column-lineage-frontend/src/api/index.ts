@@ -7,6 +7,7 @@ export * from './baseViewService';
 export * from './lineageService';
 export * from './repositoryAnalysisService';
 export * from './spAnalysisService';
+export * from './prefectAnalysisService';
 
 // You can add more service exports here as you create them
 // export * from './authService';

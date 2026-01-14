@@ -130,56 +130,210 @@ class PrefectAnalysisService:
                 logger.info("Filtering by naming conventions...")
                 prefect_repos.update(cloner.filter_by_naming_convention(all_repos))
             
-            # Step 2: Check remaining repositories by content
-            logger.info("Checking repositories for Prefect patterns...")
+            # Handle clone_all_repos option
+            if request.clone_all_repos:
+                logger.info("clone_all_repos=True: Adding ALL repositories for cloning")
+                all_repo_names = [repo['repositoryName'] for repo in all_repos]
+                prefect_repos.update(all_repo_names)
+                logger.info(f"Added all {len(all_repo_names)} repositories for cloning")
             
-            remaining_repos = [r for r in all_repos if r['repositoryName'] not in prefect_repos]
-            
-            for i, repo in enumerate(remaining_repos, 1):
-                repo_name = repo['repositoryName']
-                logger.info(f"[{i}/{len(remaining_repos)}] Checking {repo_name}")
+            # Step 2: Content-based discovery (optional)
+            if not request.skip_discovery:
+                logger.info("Performing content-based discovery (this may take longer)...")
                 
-                if cloner.shallow_clone_and_check(repo_name):
-                    prefect_repos.add(repo_name)
-                    logger.info(f"  -> {repo_name} contains Prefect flows")
-            
-            # Step 3: Clone identified Prefect repositories
-            logger.info(f"Cloning {len(prefect_repos)} Prefect repositories...")
-            
-            successful_clones = 0
-            for i, repo_name in enumerate(sorted(prefect_repos), 1):
-                logger.info(f"[{i}/{len(prefect_repos)}] Cloning {repo_name}")
+                remaining_repos = [r for r in all_repos if r['repositoryName'] not in prefect_repos]
+                logger.info(f"Found {len(prefect_repos)} repos by naming convention, checking {len(remaining_repos)} remaining repos for Prefect patterns in parallel")
                 
-                clone_success = cloner.clone_repository(
-                    repo_name, 
-                    request.target_directory
+                if remaining_repos:
+                    # Use parallel checking with appropriate number of workers
+                    check_workers = min(request.max_workers, 10)  # Cap at 10 for checking
+                    logger.info(f"Using {check_workers} parallel workers for Prefect pattern checking")
+                    
+                    remaining_repo_names = [r['repositoryName'] for r in remaining_repos]
+                    additional_prefect_repos = cloner.check_repositories_for_prefect_parallel(
+                        remaining_repo_names, 
+                        max_workers=check_workers
+                    )
+                    prefect_repos.update(additional_prefect_repos)
+            else:
+                logger.info("Skipping content-based discovery for faster processing...")
+                logger.info("Will clone repositories by naming patterns and verify Prefect content after cloning")
+                
+                # If no repos found by naming, add some common patterns
+                if not prefect_repos:
+                    logger.info("No repositories found by naming patterns, using fallback list")
+                    fallback_repos = []
+                    for repo in all_repos:
+                        repo_name = repo['repositoryName'].lower()
+                        # Look for common patterns that might indicate Prefect usage
+                        if any(keyword in repo_name for keyword in ['flow', 'prefect', 'pipeline', 'etl', 'data']):
+                            fallback_repos.append(repo['repositoryName'])
+                    
+                    if fallback_repos:
+                        prefect_repos.update(fallback_repos[:15])  # Limit to first 15 matches
+                        logger.info(f"Added {len(fallback_repos[:15])} repositories from fallback patterns")
+            
+            logger.info(f"Total repositories selected for cloning: {len(prefect_repos)}")
+            if prefect_repos:
+                logger.info(f"Repositories to process: {list(prefect_repos)}")
+            else:
+                logger.warning("No repositories selected for processing!")
+            
+            # Step 3: Clone repositories in parallel and verify Prefect content
+            if prefect_repos:
+                logger.info(f"\nStep 3: Cloning {len(prefect_repos)} repositories in parallel...")
+                
+                # Use parallel cloning with appropriate number of workers
+                max_workers = min(request.max_workers, 8)  # Cap at 8 for cloning
+                logger.info(f"Using {max_workers} parallel workers for cloning")
+                
+                clone_results = cloner.clone_repositories_parallel(
+                    repo_names=list(prefect_repos), 
+                    target_dir=request.target_directory,
+                    region=None,  # Use default from credentials
+                    max_workers=max_workers
                 )
                 
-                if clone_success:
-                    successful_clones += 1
+                # Validate clone_results structure
+                if not clone_results or not isinstance(clone_results, dict):
+                    logger.error(f"Invalid clone_results structure: {type(clone_results)}")
+                    raise Exception("Clone operation returned invalid results")
                 
-                # Gather repository info
-                repo_info = self._analyze_repository_info(
-                    repo_name, 
-                    request.target_directory, 
-                    clone_success
-                )
-                repository_info.append(repo_info)
+                successful_clones = clone_results.get('successful', 0)
+                
+                # Log detailed results
+                logger.info(f"Clone results: {clone_results.get('cloned', 0)} new, {clone_results.get('updated', 0)} updated, {clone_results.get('existing', 0)} existing, {clone_results.get('failed', 0)} failed")
+                
+                # Step 4: Verify which cloned repositories actually contain Prefect patterns
+                logger.info(f"\nStep 4: Verifying Prefect patterns in cloned repositories...")
+                
+                # Safely get successfully cloned repos
+                successfully_cloned_repos = []
+                details = clone_results.get('details', [])
+                
+                if details and isinstance(details, list):
+                    logger.info(f"Processing {len(details)} clone details")
+                    for detail in details:
+                        if detail and isinstance(detail, dict) and detail.get('success', False):
+                            repo_name = detail.get('repo_name')
+                            if repo_name:
+                                successfully_cloned_repos.append(repo_name)
+                    logger.info(f"Found {len(successfully_cloned_repos)} successfully cloned repositories")
+                else:
+                    logger.warning(f"Clone details is empty or invalid, using original repo list")
+                    successfully_cloned_repos = list(prefect_repos)
+                
+                logger.info(f"Successfully cloned repos to verify: {len(successfully_cloned_repos)}")
+                
+                if successfully_cloned_repos:
+                    logger.info(f"Checking {len(successfully_cloned_repos)} successfully cloned repositories for Prefect patterns")
+                    try:
+                        verified_prefect_repos = cloner.check_cloned_repositories_for_prefect(
+                            successfully_cloned_repos, 
+                            request.target_directory
+                        )
+                        logger.info(f"Verified {len(verified_prefect_repos)} repositories actually contain Prefect patterns")
+                        
+                        # Update prefect_repos to only include verified ones
+                        prefect_repos = verified_prefect_repos
+                    except Exception as e:
+                        logger.error(f"Error verifying Prefect patterns: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        logger.info("Using original repository list without verification")
+                        # Keep original prefect_repos if verification fails
+                else:
+                    logger.warning("No repositories were successfully cloned")
+                    prefect_repos = set()
+                
+                # Gather repository info for all repos (successful and failed)
+                logger.info("Gathering repository information...")
+                all_repo_names = list(prefect_repos) if prefect_repos else []
+                
+                # Add failed repos to the analysis
+                details = clone_results.get('details', [])
+                if details and isinstance(details, list):
+                    failed_repos = [
+                        d.get('repo_name') for d in details 
+                        if d and isinstance(d, dict) and not d.get('success', False) and d.get('repo_name')
+                    ]
+                    all_repo_names.extend(failed_repos)
+                    logger.info(f"Added {len(failed_repos)} failed repositories to analysis")
+                
+                logger.info(f"Total repositories to analyze: {len(all_repo_names)}")
+                
+                for i, repo_name in enumerate(all_repo_names):
+                    try:
+                        logger.info(f"Analyzing repository {i+1}/{len(all_repo_names)}: {repo_name}")
+                        
+                        # Find the clone result for this repo
+                        repo_result = None
+                        details = clone_results.get('details', [])
+                        if details and isinstance(details, list):
+                            repo_result = next(
+                                (r for r in details 
+                                 if r and isinstance(r, dict) and r.get('repo_name') == repo_name), 
+                                None
+                            )
+                        
+                        clone_success = repo_result.get('success', True) if repo_result and isinstance(repo_result, dict) else True
+                        
+                        repo_info = self._analyze_repository_info(
+                            repo_name, 
+                            request.target_directory, 
+                            clone_success
+                        )
+                        repository_info.append(repo_info)
+                        
+                    except Exception as e:
+                        logger.error(f"Error analyzing repository {repo_name}: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        # Create a basic repo info if analysis fails
+                        try:
+                            basic_repo_info = PrefectRepositoryInfo(
+                                repo_name=repo_name,
+                                clone_status='unknown',
+                                prefect_files_found=[],
+                                python_files_count=0,
+                                has_flows=False,
+                                has_tasks=False
+                            )
+                            repository_info.append(basic_repo_info)
+                        except Exception as e2:
+                            logger.error(f"Error creating basic repo info for {repo_name}: {e2}")
+                
+                logger.info(f"Repository analysis completed: {len(repository_info)} repositories processed")
+            else:
+                logger.info(f"\nStep 3: No repositories to clone")
+                successful_clones = 0
             
             discovery_time = time.time() - start_time
+            
+            # Ensure we have valid data for the response
+            final_prefect_repos_count = len(prefect_repos) if prefect_repos else 0
+            final_successful_clones = successful_clones if successful_clones is not None else 0
+            final_repository_info = repository_info if repository_info else []
+            final_all_repos_count = len(all_repos) if all_repos else 0
             
             # Update job with discovery results
             self.update_job(
                 job_id,
-                total_repos_found=len(prefect_repos),
-                repos_cloned=successful_clones,
-                message=f"Discovered {len(prefect_repos)} Prefect repositories, cloned {successful_clones}"
+                total_repos_found=final_prefect_repos_count,
+                repos_cloned=final_successful_clones,
+                message=f"Discovered {final_prefect_repos_count} Prefect repositories, cloned {final_successful_clones}"
             )
             
+            logger.info(f"Discovery completed successfully:")
+            logger.info(f"  Total repos checked: {final_all_repos_count}")
+            logger.info(f"  Prefect repos found: {final_prefect_repos_count}")
+            logger.info(f"  Successfully cloned: {final_successful_clones}")
+            logger.info(f"  Discovery time: {discovery_time:.2f} seconds")
+            
             return PrefectDiscoveryResults(
-                total_repos_checked=len(all_repos),
-                prefect_repos_found=len(prefect_repos),
-                repositories=repository_info,
+                total_repos_checked=final_all_repos_count,
+                prefect_repos_found=final_prefect_repos_count,
+                repositories=final_repository_info,
                 discovery_time_seconds=discovery_time
             )
             
