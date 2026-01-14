@@ -1,0 +1,77 @@
+[project]
+name = "macd_audit"
+version = "0.3.3"
+description = "Given Instance Ids or Serial Numbers, run a MACD Audit and export to Excel"
+readme = "README.md"
+authors = [
+    { name = "Eric Stasney", email = "estasney@cisco.com" }
+]
+requires-python = ">=3.12"
+
+dependencies = [
+    "common-prefect-next[excel]>=0.16.0",
+    "prefect>3",
+    "snowflake-sqlalchemy",
+    "sqlalchemy>2",
+    "pydantic>2",
+    "pydantic-settings",
+    "common-serial-resolution>=0.4.0",
+    "jinja2>=3.1.6",
+]
+
+[dependency-groups]
+linters = ["ruff>=0.9.0"]
+dev = [
+    "pre-commit>=4.1.0",
+    "pytest>=8.3.3",
+    "wheel>=0.45.1",
+    "boto3-stubs-lite[essential]>=1.37.12",
+    "sqlglot[rs]>=26.18.1",
+    "keyring>=25.6.0",
+]
+
+[project.url]
+Repository = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/macd-audit-flow"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.uv]
+default-groups = ["linters", "dev"]
+
+
+[tool.uv.sources.common-prefect-next]
+git = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common_prefect_next.git"
+branch = "master"
+
+[tool.uv.sources.common-serial-resolution]
+git = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common-serial-resolution.git"
+branch = "master"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["A", "ANN", "ASYNC", "B", "C4", "EM", "ERA", "ERA", "F", "FA", "FIX", "G", "I", "ICN", "LOG", "NPY", "PD", "PERF", "PGH", "PIE", "PL", "RUF", "SIM", "SLOT", "T10", "TC", "TCH", "TD", "TRY", ]
+ignore = ["F401", "F403", "PLR0913", "FA100", "FA102", "PLR", "PLC0415", "RUF012", "PD901", "ANN401", ]
+
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["I"]
+"tests/**/*.py" = ["I", "ANN"]
+
+
+[tool.ruff.lint.flake8-type-checking]
+# Add quotes around type annotations, if doing so would allow
+# an import to be moved into a type-checking block.
+quote-annotations = true
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "macd_audit.models.Model", "common_prefect_next.blocks", "typing.Literal"]
+exempt-modules = ["typing", "pydantic", "datetime", "common_prefect_next.blocks.database", "common_prefect_next.blocks.environment"]
+strict = false
+
+[tool.pytest.ini_options]
+addopts = "--capture=tee-sys --verbose"
+testpaths = ["tests"]
+

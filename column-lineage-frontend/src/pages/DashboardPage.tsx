@@ -285,7 +285,6 @@ const DashboardPage = () => {
                 <Box sx={{ textAlign: 'center' }}>
                   <Button
                     variant="contained"
-                    color="secondary"
                     size="large"
                     startIcon={<PlayArrow />}
                     onClick={handleStartPrefectAnalysis}

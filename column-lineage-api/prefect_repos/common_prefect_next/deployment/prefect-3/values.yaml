@@ -1,0 +1,6 @@
+worker:
+  cloudApiConfig:
+    accountId: 421a2ff7-ff12-46b7-9d43-8f012c9bb18a
+    workspaceId: 70c6c7e5-7706-4c2d-a3be-7cd81a5ce5c4  # dsci-prod
+  config:
+    workPool: K8S

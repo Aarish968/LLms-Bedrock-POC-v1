@@ -1,0 +1,8 @@
+* text=auto
+*.xlsx binary
+*.doc binary
+*.docx binary
+*.png binary
+.gitattributes export-ignore
+.gitignore export-ignore
+.gitkeep export-ignore

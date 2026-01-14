@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "{{cookiecutter.project_slug}}"
+version = "{{cookiecutter.version}}"
+description = "{{cookiecutter.project_short_description}}"
+readme = "README.md"
+authors = [
+  {name = "{{cookiecutter.full_name}}", email = "{{cookiecutter.email}}"}
+]
+requires-python = ">=3.12"
+
+dependencies = [
+    "{%- if cookiecutter.writes_excel -%}common-prefect-next[excel]{%- else -%}common-prefect-next{%- endif -%}",
+    "prefect>3",
+    "snowflake-sqlalchemy",
+    "sqlalchemy>2",
+    "pydantic>2",
+    "pydantic-settings"
+]
+
+[dependency-groups]
+linters = [ "ruff>=0.9.0"]
+dev = [
+ "pre-commit>=4.1.0",
+ "pytest>=8.3.3",
+ "wheel>=0.45.1",
+]
+
+[tool.uv]
+default-groups = [ "linters", "dev"]
+
+
+[tool.uv.sources.common-prefect-next]
+git = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common_prefect_next.git"
+branch = "master"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [ "A", "ANN", "ASYNC", "B", "C4", "EM", "ERA", "ERA", "F", "FA", "FIX", "G", "I", "ICN", "LOG", "NPY", "PD", "PERF", "PGH", "PIE", "PL", "RUF", "SIM", "SLOT", "T10", "TC", "TCH", "TD", "TRY",]
+ignore = [ "F401", "F403", "PLR0913", "FA100", "FA102", "PLR", "PLC0415", "RUF012", "PD901", "ANN401",]
+
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["I"]
+"tests/**" = ["A", "I", "ANN"]
+
+
+[tool.ruff.lint.flake8-type-checking]
+# Add quotes around type annotations, if doing so would allow
+# an import to be moved into a type-checking block.
+quote-annotations = true
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "{{cookiecutter.project_slug}}.models.Model", ]
+exempt-modules = ["typing", "pydantic", "datetime", "common_prefect_next.blocks.database", "common_prefect_next.blocks.environment"]
+strict = false
+
+[tool.hatch.version]
+path = "src/{{cookiecutter.project_slug}}/__version__.py"
+

@@ -1,0 +1,21 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.10
+    hooks:
+      - id: ruff
+        language_version: python3
+        args: [ --fix, --exit-non-zero-on-fix, --show-fixes ]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+  - repo: local
+    hooks:
+      - id: check-common-branches
+        name: check common branches (master, dev)
+        language: python
+        entry: python -c "from pathlib import Path; import re, subprocess, sys; fp = Path('pyproject.toml'); cn = subprocess.run(['git', 'branch', '--show-current'], capture_output=True, text=True).stdout.strip(); t = fp.read_text(); sys.exit(0) if cn != 'master' else sys.exit(0) if not (m := re.findall(r'branch\s*=\s*\"([^\"]+)\"', t)) else sys.exit(1) if 'dev' in m else None"
+        pass_filenames: false
+        always_run: true
+

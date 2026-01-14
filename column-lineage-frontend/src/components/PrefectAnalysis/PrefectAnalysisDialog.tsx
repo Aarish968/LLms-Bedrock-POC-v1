@@ -1,6 +1,7 @@
 /**
  * Prefect Analysis Dialog Component
- * Dialog for starting a new Prefect repository analysis
+ * Dialog for starting Prefect repository analysis with debug info
+ * Matches the UI/UX of LineageAnalysisDialog
  */
 
 import React, { useState } from 'react';
@@ -10,19 +11,13 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  TextField,
-  FormControlLabel,
-  Switch,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Box,
   Typography,
-  Alert,
   Chip,
+  Paper,
+  Alert,
 } from '@mui/material';
-import { Info } from '@mui/icons-material';
+import { PlayArrow } from '@mui/icons-material';
 import { PrefectAnalysisService } from '../../api/prefectAnalysisService';
 import { PrefectAnalysisRequest, PrefectAnalysisResponse } from '../../types/prefectAnalysis';
 
@@ -32,6 +27,45 @@ interface PrefectAnalysisDialogProps {
   onAnalysisStarted: (response: PrefectAnalysisResponse) => void;
 }
 
+// Debug Info Component - Matches LineageAnalysisDialog style
+const DebugInfo: React.FC<{
+  currentJobId: string | null;
+  isAnalysisRunning: boolean;
+  isJobRunning: boolean;
+  isJobCompleted: boolean;
+}> = ({ currentJobId, isAnalysisRunning, isJobRunning, isJobCompleted }) => {
+  return (
+    <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+      <Typography variant="h6" gutterBottom>
+        Debug Info
+      </Typography>
+      
+      <Box display="flex" flexWrap="wrap" gap={1}>
+        <Chip 
+          label={`Job ID: ${currentJobId || 'null'}`} 
+          color={currentJobId ? 'primary' : 'default'}
+          size="small"
+        />
+        <Chip 
+          label={`Analysis Running: ${isAnalysisRunning}`} 
+          color={isAnalysisRunning ? 'warning' : 'default'}
+          size="small"
+        />
+        <Chip 
+          label={`Job Running: ${isJobRunning}`} 
+          color={isJobRunning ? 'info' : 'default'}
+          size="small"
+        />
+        <Chip 
+          label={`Job Completed: ${isJobCompleted}`} 
+          color={isJobCompleted ? 'success' : 'default'}
+          size="small"
+        />
+      </Box>
+    </Paper>
+  );
+};
+
 export const PrefectAnalysisDialog: React.FC<PrefectAnalysisDialogProps> = ({
   open,
   onClose,
@@ -39,26 +73,16 @@ export const PrefectAnalysisDialog: React.FC<PrefectAnalysisDialogProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [formData, setFormData] = useState<PrefectAnalysisRequest>({
-    sf_environment: 'prod',
-    max_workers: 4,
-    target_directory: 'prefect_repos',
-    skip_discovery: false, // Comprehensive mode by default
-    skip_naming_check: false,
-    clone_all_repos: false,
-    async_processing: true,
-  });
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
+  const handleStartAnalysis = async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await PrefectAnalysisService.startAnalysis(formData);
-      onAnalysisStarted(response);
-      onClose();
       
-      // Reset form
-      setFormData({
+      // Use default configuration
+      const request: PrefectAnalysisRequest = {
         sf_environment: 'prod',
         max_workers: 4,
         target_directory: 'prefect_repos',
@@ -66,151 +90,99 @@ export const PrefectAnalysisDialog: React.FC<PrefectAnalysisDialogProps> = ({
         skip_naming_check: false,
         clone_all_repos: false,
         async_processing: true,
-      });
+      };
+      
+      const response = await PrefectAnalysisService.startAnalysis(request);
+      setCurrentJobId(response.job_id);
+      onAnalysisStarted(response);
+      
+      // Show redirect message
+      setIsRedirecting(true);
+
+      // Auto-close dialog after 2 seconds
+      setTimeout(() => {
+        setIsRedirecting(false);
+        setCurrentJobId(null);
+        setLoading(false);
+        onClose();
+      }, 2000);
     } catch (err: any) {
       setError(err.message || 'Failed to start analysis');
-    } finally {
       setLoading(false);
     }
   };
 
-  const estimatedTime = formData.skip_discovery ? '~11 minutes' : '~20 minutes';
-  const estimatedRepos = formData.skip_discovery ? '~20 repositories' : '~99 repositories';
+  const handleClose = () => {
+    if (!loading) {
+      setError(null);
+      setIsRedirecting(false);
+      setCurrentJobId(null);
+      onClose();
+    }
+  };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Start Prefect Repository Analysis</DialogTitle>
+    <Dialog 
+      open={open} 
+      onClose={handleClose} 
+      maxWidth="md" 
+      fullWidth
+      disableEscapeKeyDown={loading}
+    >
+      <DialogTitle>
+        <Box display="flex" alignItems="center" justifyContent="space-between">
+          <Typography variant="h6">Prefect Repository Analysis</Typography>
+          {currentJobId && (
+            <Chip
+              label={`Job: ${currentJobId.slice(0, 8)}...`}
+              size="small"
+              variant="outlined"
+            />
+          )}
+        </Box>
+      </DialogTitle>
+
       <DialogContent>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-          {error && <Alert severity="error">{error}</Alert>}
+        {/* Debug Info */}
+        <DebugInfo
+          currentJobId={currentJobId}
+          isAnalysisRunning={loading}
+          isJobRunning={loading}
+          isJobCompleted={isRedirecting}
+        />
+
+        <Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Start Prefect repository analysis to discover and analyze table-column references.
+          </Typography>
           
-          <Alert severity="info" icon={<Info />}>
-            This will discover Prefect repositories from AWS CodeCommit, clone them, and analyze table-column references.
-          </Alert>
-
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Chip 
-              label={estimatedRepos} 
-              color="primary" 
-              size="small" 
-            />
-            <Chip 
-              label={estimatedTime} 
-              color="secondary" 
-              size="small" 
-            />
-          </Box>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
           
-          <FormControl fullWidth>
-            <InputLabel>Snowflake Environment</InputLabel>
-            <Select
-              value={formData.sf_environment}
-              label="Snowflake Environment"
-              onChange={(e) => setFormData({ ...formData, sf_environment: e.target.value })}
-            >
-              <MenuItem value="dev">Development</MenuItem>
-              <MenuItem value="stage">Staging</MenuItem>
-              <MenuItem value="prod">Production</MenuItem>
-            </Select>
-          </FormControl>
-
-          <TextField
-            label="Max Workers"
-            type="number"
-            value={formData.max_workers}
-            onChange={(e) => setFormData({ ...formData, max_workers: parseInt(e.target.value) || 4 })}
-            inputProps={{ min: 1, max: 10 }}
-            helperText="Number of parallel workers for cloning and analysis (1-10)"
-            fullWidth
-          />
-
-          <TextField
-            label="Target Directory"
-            value={formData.target_directory}
-            onChange={(e) => setFormData({ ...formData, target_directory: e.target.value })}
-            helperText="Directory where repositories will be cloned"
-            fullWidth
-          />
-
-          <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1, p: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Discovery Options
-            </Typography>
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={!formData.skip_discovery}
-                  onChange={(e) => setFormData({ ...formData, skip_discovery: !e.target.checked })}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body2">
-                    Content-Based Discovery (Recommended)
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Checks all repos for Prefect patterns. Finds ~99 repos but takes longer.
-                  </Typography>
-                </Box>
-              }
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.skip_naming_check}
-                  onChange={(e) => setFormData({ ...formData, skip_naming_check: e.target.checked })}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body2">
-                    Skip Naming Pattern Check
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Skip filtering by repository name patterns (flow-*, *-flows, etc.)
-                  </Typography>
-                </Box>
-              }
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.clone_all_repos}
-                  onChange={(e) => setFormData({ ...formData, clone_all_repos: e.target.checked })}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body2">
-                    Clone All Repositories
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Clone ALL repositories regardless of Prefect patterns (slowest but most comprehensive)
-                  </Typography>
-                </Box>
-              }
-            />
-          </Box>
-
-          <Alert severity="warning" sx={{ mt: 1 }}>
-            <Typography variant="body2">
-              <strong>Note:</strong> This is a long-running operation. You can close this dialog and check progress in the jobs list.
-              The system uses smart polling to minimize backend load.
-            </Typography>
-          </Alert>
+          {isRedirecting && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Analysis started successfully! Redirecting to Prefect Analysis jobs section...
+            </Alert>
+          )}
         </Box>
       </DialogContent>
+
       <DialogActions>
-        <Button onClick={onClose} disabled={loading}>
-          Cancel
-        </Button>
         <Button 
-          onClick={handleSubmit} 
-          variant="contained" 
+          onClick={handleClose}
           disabled={loading}
+        >
+          {loading ? 'Running...' : 'Close'}
+        </Button>
+
+        <Button
+          variant="contained"
+          startIcon={<PlayArrow />}
+          onClick={handleStartAnalysis}
+          disabled={loading || isRedirecting}
         >
           {loading ? 'Starting...' : 'Start Analysis'}
         </Button>

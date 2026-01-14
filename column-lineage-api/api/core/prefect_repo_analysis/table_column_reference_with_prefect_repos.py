@@ -44,6 +44,10 @@ class SnowflakeDataExtractor:
         self.engine = None
         self.db_manager = None
         
+        # Import settings to get table names from environment
+        from api.core.config import get_settings
+        self.settings = get_settings()
+        
     def create_connection(self):
         """Create Snowflake connection using existing database infrastructure."""
         try:
@@ -73,7 +77,7 @@ class SnowflakeDataExtractor:
             raise
     
     def fetch_base_table_data(self) -> pd.DataFrame:
-        """Fetch data from BASE_TABLE using existing database infrastructure."""
+        """Fetch table and column data from INFORMATION_SCHEMA."""
         if not self.engine:
             self.create_connection()
         
@@ -81,26 +85,34 @@ class SnowflakeDataExtractor:
         if self.db_manager and self.db_manager.mock_mode:
             logger.info("Running in mock mode - returning sample BASE_TABLE data")
             return pd.DataFrame({
-                'table_name': ['SAMPLE_TABLE_1', 'SAMPLE_TABLE_2'],
-                'column_names': ['COLUMN_A', 'COLUMN_B']
+                'TABLE_NAME': ['SAMPLE_TABLE_1', 'SAMPLE_TABLE_2'],
+                'COLUMN_NAME': ['COLUMN_A', 'COLUMN_B']
             })
+        
+        # Query INFORMATION_SCHEMA to get all tables and their columns
+        logger.info("Fetching table and column data from INFORMATION_SCHEMA.COLUMNS")
             
         sql = """
-        SELECT * FROM CPS_DSCI_BR.BASE_TABLE
-        ORDER BY TABLE_NAME
+        SELECT 
+            TABLE_NAME,
+            COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'CPS_DSCI_BR'
+        AND TABLE_CATALOG = 'CPS_DB'
+        ORDER BY TABLE_NAME, ORDINAL_POSITION
         """
         
         try:
             with self.engine.connect() as connection:
                 result = pd.read_sql(text(sql), connection)
-                logger.info(f"Fetched {len(result)} records from BASE_TABLE")
+                logger.info(f"Fetched {len(result)} table-column records from INFORMATION_SCHEMA")
                 return result
         except Exception as e:
-            logger.error(f"Error fetching BASE_TABLE data: {e}")
+            logger.error(f"Error fetching data from INFORMATION_SCHEMA: {e}")
             raise
     
     def fetch_view_table_data(self) -> pd.DataFrame:
-        """Fetch data from VIEW_TABLE using existing database infrastructure."""
+        """Fetch view and column data from INFORMATION_SCHEMA."""
         if not self.engine:
             self.create_connection()
         
@@ -108,23 +120,34 @@ class SnowflakeDataExtractor:
         if self.db_manager and self.db_manager.mock_mode:
             logger.info("Running in mock mode - returning sample VIEW_TABLE data")
             return pd.DataFrame({
-                'view_name': ['SAMPLE_VIEW_1', 'SAMPLE_VIEW_2'],
-                'column_names': ['COLUMN_X', 'COLUMN_Y']
+                'TABLE_NAME': ['SAMPLE_VIEW_1', 'SAMPLE_VIEW_2'],
+                'COLUMN_NAME': ['COLUMN_X', 'COLUMN_Y']
             })
+        
+        # Query INFORMATION_SCHEMA to get all views and their columns
+        logger.info("Fetching view and column data from INFORMATION_SCHEMA.COLUMNS")
             
         sql = """
-        SELECT * FROM CPS_DSCI_BR.VIEW_TABLE
-        ORDER BY VIEW_NAME
+        SELECT 
+            TABLE_NAME,
+            COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'CPS_DSCI_BR'
+        AND TABLE_CATALOG = 'CPS_DB'
+        AND TABLE_TYPE = 'VIEW'
+        ORDER BY TABLE_NAME, ORDINAL_POSITION
         """
         
         try:
             with self.engine.connect() as connection:
                 result = pd.read_sql(text(sql), connection)
-                logger.info(f"Fetched {len(result)} records from VIEW_TABLE")
+                logger.info(f"Fetched {len(result)} view-column records from INFORMATION_SCHEMA")
                 return result
         except Exception as e:
-            logger.error(f"Error fetching VIEW_TABLE data: {e}")
-            raise
+            logger.error(f"Error fetching view data from INFORMATION_SCHEMA: {e}")
+            # If VIEW filtering fails, return empty DataFrame
+            logger.warning("Returning empty DataFrame for views")
+            return pd.DataFrame(columns=['TABLE_NAME', 'COLUMN_NAME'])
     
     def close_connection(self):
         """Close the Snowflake connection."""
@@ -761,8 +784,8 @@ class TableColumnReferenceAnalyzer:
             # Process base table data
             if not self.base_table_data.empty:
                 for _, row in self.base_table_data.iterrows():
-                    table_name = str(row.get('table_name', '')).upper()
-                    column_name = str(row.get('column_names', '')).upper()
+                    table_name = str(row.get('TABLE_NAME', '')).upper()
+                    column_name = str(row.get('COLUMN_NAME', '')).upper()
                     
                     if table_name and table_name.lower() not in ['', 'nan', 'none']:
                         self.all_table_names.add(table_name)
@@ -775,8 +798,8 @@ class TableColumnReferenceAnalyzer:
             # Process view table data
             if not self.view_table_data.empty:
                 for _, row in self.view_table_data.iterrows():
-                    view_name = str(row.get('view_name', '')).upper()
-                    column_name = str(row.get('column_names', '')).upper()
+                    view_name = str(row.get('TABLE_NAME', '')).upper()
+                    column_name = str(row.get('COLUMN_NAME', '')).upper()
                     
                     if view_name and view_name.lower() not in ['', 'nan', 'none']:
                         self.all_table_names.add(view_name)

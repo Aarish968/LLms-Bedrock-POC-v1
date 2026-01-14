@@ -1,0 +1,70 @@
+# Generic metadata about this project
+name: flow_daily_metrics
+prefect-version: 3.1.12
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push:
+  - prefect.deployments.steps.run_shell_script:
+      id: get_flow_version
+      script: grep '^version' pyproject.toml | cut -d '"' -f 2
+      stream_output: true
+  - prefect.deployments.steps.run_shell_script:
+      id: remove_dist
+      script: rm -f dist/*
+  - prefect.deployments.steps.run_shell_script:
+      id: build_wheel
+      script: uv build --wheel
+  - prefect.deployments.steps.set_working_directory:
+      id: set_working_directory
+      directory: dist
+  - prefect_aws.deployments.steps.push_to_s3:
+      id: push_code
+      requires: prefect-aws>=0.3.4
+      bucket: prefect2.flow.code
+      folder: daily_dc_metrics
+
+# pull section allows you to provide instructions for cloning this project in remote locations
+pull: &default_pull
+  - prefect_aws.deployments.steps.pull_from_s3:
+      id: pull_code
+      requires: prefect-aws>=0.3.4
+      bucket: '{{ push_code.bucket }}'
+      folder: '{{ push_code.folder }}'
+  - prefect.deployments.steps.run_shell_script:
+      id: install_wheel
+      script: "pip install canvas_optimized_tables-{{ get_flow_version.stdout }}-py3-none-any.whl"
+
+daily_schedule: &daily_schedule
+  - cron: "0 20 * * *"
+    timezone: "America/New_York"
+    active: true
+
+deployments:
+  - name: daily_dc_metrics
+    version:
+    tags:
+      - prod
+      - daily_dc_metrics
+    concurrency_limit:
+    description: 'Generate Daily DC Metrics'
+    entrypoint: daily_dc_metrics.main.daily_dc_metrics
+    parameters: {
+      "env": "prod",
+      "warehouse": '{{prefect.variables.warehouse_xlarge}}',
+      "schema": "cps_dsci_archive",
+      "empty_scope_policy": "raise"
+    }
+    work_pool:
+      name: K8S
+      work_queue_name:
+      job_variables:
+        image: "{{prefect.variables.docker_base_312}}"
+        image_pull_policy: Always
+        env:
+          PREFECT_LOGGING_EXTRA_LOGGERS: daily_dc_metrics
+
+    enforce_parameter_schema: true
+    schedules:
+      *daily_schedule
+    <<: *default_pull
+

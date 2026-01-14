@@ -1,0 +1,9 @@
+# Gitignore
+.idea
+venv
+**/results
+*log.txt
+exportToHTML
+scripts
+flows/input/*.xlsx
+flows/input/*.xlsb

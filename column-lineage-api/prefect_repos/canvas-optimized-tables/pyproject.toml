@@ -1,0 +1,49 @@
+[project]
+name = "canvas-optimized-tables"
+version = "0.4.10"
+description = "Process that creates optimized tables for canvas creation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "common-prefect-next",
+    "prefect-aws>=0.5.1",
+    "prefect-docker>=0.6.1",
+    "prefect>3",
+    "pydantic-extra-types>=2.10.0",
+    "sqlglot>=25.31.4",
+    "jinja2>=3.1.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+linters = [
+    "ruff>=0.8.0",
+]
+dev = [
+    "common-prefect-next>=0.3.4",
+    "pytest>=8.3.3",
+]
+
+[tool.uv]
+default-groups = ["linters", "dev"]
+
+[tool.uv.sources]
+common-prefect-next = { git = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common_prefect_next.git", branch = "master" }
+
+
+
+[tool.ruff]
+exclude = [".git", ".idea", ".vscode", "venv", ".venv", ".mypy_cache", ".pytest_cache", ".ruff", "site-packages", "tests", "scripts"]
+preview = false
+
+[tool.ruff.lint]
+select = ["I", "F", "ASYNC", "B", "C4", "T10", "FA", "ICN", "LOG", "SIM", "ERA", "PD", "PL", "NPY", "RUF", "TCH"]
+ignore = ["F401", "F403", "PLR0913", "FA100", "FA102", "PLR", "PLC0415", "RUF012", "PD901"]
+
+[tool.ruff.lint.per-file-ignores]
+
+
+

@@ -1,0 +1,1 @@
+"""Tests for daily table snapshots flow."""

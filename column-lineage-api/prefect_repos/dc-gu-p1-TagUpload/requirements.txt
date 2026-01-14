@@ -1,0 +1,9 @@
+awswrangler
+boto3
+cloudpickle==1.6.0
+pandas<2
+prefect[all_orchestration_extra]==0.15.13
+SQLAlchemy>=1.4,<2.0
+snowflake-sqlalchemy<2
+xlsxwriter
+pydantic<2

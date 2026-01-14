@@ -1,0 +1,29 @@
+CHANGE LOG - Prefect 3.0 Migration
+
+DATE: 2025-09-18
+
+ISSUE:
+User received the following error when trying to publish code to Prefect 3.0:
+prefect.exceptions.AuthorizationError: [{'path': ['project'], 'message': 'AuthenticationError: Forbidden'}
+
+ROOT CAUSE:
+Version incompatibility between Prefect 0.15.13 (used in the codebase) and Prefect 3.0 (target deployment platform). The authentication mechanisms and project configuration structures are fundamentally different between these versions.
+
+PLAN:
+1. Add Prefect 3.0 configuration files without breaking existing Prefect 0.15.13 functionality
+2. Update sec.py to handle both Prefect 0.15.13 and Prefect 3.0 authentication
+3. Create a Prefect 3.0 deployment configuration file
+4. Provide clear documentation for both deployment methods
+
+CHANGES MADE:
+1. Updated sec.py get_prefect_token() function to try Prefect 3.0 API key first, then fall back to legacy token
+2. Created prefect.yaml deployment configuration file for Prefect 3.0
+3. Created prefect-profiles.toml template for Prefect 3.0 authentication
+4. Updated README.md with instructions for both Prefect 0.15.13 and Prefect 3.0 deployments
+5. Added troubleshooting section in README.md
+
+NEXT STEPS:
+1. Create a Prefect 3.0 API key in the Prefect Cloud UI
+2. Store the API key in AWS Parameter Store at /cam/dev/prefect/api_key
+3. Configure profiles.toml with correct account and workspace IDs
+4. Test deployment using prefect deploy command

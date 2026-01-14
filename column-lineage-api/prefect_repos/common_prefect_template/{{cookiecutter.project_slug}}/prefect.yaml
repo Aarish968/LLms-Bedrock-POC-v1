@@ -1,0 +1,72 @@
+name: {{cookiecutter.project_slug}}_prod
+prefect-version: 3.1.12
+
+definitions:
+  - &bundle_name {{cookiecutter.project_slug}}_prod
+  - &extra_loggers {{cookiecutter.project_slug}},common_prefect_next
+  - &env prod
+  - deployment_names:
+    - &deployment_{{cookiecutter.project_slug}} {{cookiecutter.project_slug}}_prod
+  - default_work_pool: &default_work_pool
+      name: K8S
+      work_queue_name: {% if cookiecutter.will_access_thoughtspot -%}{%raw%}"{{prefect.variables.work_queue_thoughtspot_prod}}"{%endraw%}{%else%}{%raw%}"{{prefect.variables.work_queue_prod}}"{%endraw%}{%endif%}
+      job_variables:
+          image: {%raw%}"{{prefect.variables.docker_base_312}}"{%endraw%}
+          image_pull_policy: Always
+          env:
+            PREFECT_LOGGING_EXTRA_LOGGERS: *extra_loggers
+  - entrypoints:
+      - &my_flow {{cookiecutter.project_slug}}.main:{{cookiecutter.project_slug}}_flow
+  - push: &push
+      - prefect.deployments.steps.run_shell_script:
+          id: echo_version
+          script: |
+            uv run python -c "import importlib.metadata; print(importlib.metadata.version('{{cookiecutter.project_slug}}'))"
+          stream_output: true
+      - common_prefect_next.deployments.steps.build_code_bundle:
+          id: bundle_code
+          bundle_name: *bundle_name
+          version: {% raw -%}'{{echo_version.stdout}}'{%- endraw %}
+          extra_sources:
+              - common-prefect-next{% if cookiecutter.writes_excel %}[excel]{% endif %}
+          stream_output: true
+          requires: common_prefect_next
+      - prefect.deployments.steps.set_working_directory:
+          id: set_working_directory
+          directory: dist
+      - prefect_aws.deployments.steps.push_to_s3:
+          id: push_code
+          requires: prefect-aws>=0.3.4
+          bucket: prefect2.flow.code
+          folder: *bundle_name
+      - prefect.deployments.steps.set_working_directory:
+          id: set_working_directory
+          directory: ..
+  - pull: &pull
+      - prefect_aws.deployments.steps.pull_from_s3:
+          id: pull_code
+          requires: prefect-aws>=0.3.4
+          bucket: {% raw -%}'{{ push_code.bucket }}'{%- endraw %}
+          folder: {% raw -%}'{{ push_code.folder }}'{%- endraw %}
+      - prefect.deployments.steps.run_shell_script:
+          id: install_bundle
+          script: |
+            mkdir -p /tmp/wheels
+            tar -xzf {% raw -%}{{bundle_code.stdout}}{%- endraw %} -C /tmp/wheels
+            bash -c 'pip install /tmp/wheels/*.whl'
+
+push: *push
+
+deployments:
+  - name: *deployment_{{cookiecutter.project_slug}}
+    tags:
+      - *env
+      - {{cookiecutter.project_slug}}
+    version: {% raw -%}'{{echo_version.stdout}}'{%- endraw %}
+    description: '{{cookiecutter.project_short_description}}'
+    entrypoint: *my_flow
+    parameters: { "env": *env, "warehouse":{% raw -%}'{{prefect.variables.warehouse_medium}}'{% endraw -%}}
+    work_pool: *default_work_pool
+    pull: *pull
+    push: *push
+    enforce_parameter_schema: true

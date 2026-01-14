@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "common_tasks"
+dynamic = ["version"]
+description = "Common prefect tasks"
+authors = [
+    { name = "Eric Stasney", email = "estasney@cisco.com" }
+]
+urls = { "Homepage" = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common-prefect" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+requires-python = ">=3.9"
+dependencies = [
+    "boto3>=1.35.20",
+    "numpy<2",
+    "pandas>=1.2,<2",
+    "prefect==0.15.13",
+    "requests>=2.32.3",
+    "sqlalchemy>=1.4,<2",
+    "xlsxwriter>=3.2.0",
+    "marshmallow>=3.0,<4",
+]
+
+
+
+[tool.setuptools.dynamic]
+version = { attr = "common_tasks.__version__.__version__"}
+
+
+[tool.ruff]
+exclude = [".git", ".idea", ".vscode", "venv", ".venv", ".mypy_cache", ".pytest_cache", ".ruff", "site-packages", "tests", "scripts"]
+preview = false
+
+[tool.ruff.lint]
+select = ["I", "F", "ASYNC", "B", "C4", "T10", "FA", "ICN", "LOG", "SIM", "ERA", "PD", "PL", "NPY", "RUF", "TCH"]
+ignore = ["F401", "F403", "PLR0913", "FA100", "FA102", "PLR", "PLC0415", "RUF012", "PD901"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Add quotes around type annotations, if doing so would allow
+# an import to be moved into a type-checking block.
+quote-annotations = true
+strict = false
+

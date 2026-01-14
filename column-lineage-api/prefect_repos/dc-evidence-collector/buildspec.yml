@@ -1,0 +1,27 @@
+version: 0.2
+env:
+  variables:
+    TENANT: cisco-dev
+    FLOW_PATH: ./src/evidence_collector/main.py
+    PROJECT_NAME: "ElasticSearch Canvas Load"
+    AWS_CLUSTER: "dev"
+  secrets-manager:
+    API_KEY: prefect-api-key:prefect-api-key
+  git-credential-helper: yes
+phases:
+  install:
+    runtime-versions:
+      python: 3.10
+    commands:
+      - python3 -m pip install --upgrade pip
+      - pip install numpy==1.26.4
+      - pip install pandas==1.5.3
+      - python3 -m pip install pip==20.2.4
+      - pip install -r ./src/build_requirements.txt
+      - pip wheel 'common-tasks @ git+https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common-prefect' --no-deps --wheel-dir ./wheels
+  build:
+    commands:
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 837578041534.dkr.ecr.us-east-1.amazonaws.com
+      - prefect auth login -k $API_KEY
+      - prefect auth switch-tenants --slug $TENANT
+      - PYTHONPATH=./src prefect register -l $AWS_CLUSTER -p $FLOW_PATH --project "ElasticSearch Canvas Load"

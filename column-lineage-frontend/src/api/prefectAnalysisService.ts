@@ -69,13 +69,13 @@ export class PrefectAnalysisService {
     limit: number = 50,
     offset: number = 0
   ): Promise<PrefectAnalysisJob[]> {
-    const response = await api.get<{ jobs: PrefectAnalysisJob[] }>(
+    const response = await api.get<PrefectAnalysisJob[]>(
       `${BASE_PATH}/jobs`,
       {
         params: { limit, offset },
       }
     );
-    return response.data.jobs;
+    return response.data;
   }
 
   /**

@@ -1,0 +1,7 @@
+/.python-version
+/uv.lock
+.venv
+.idea
+.prefect/
+.env
+*.env

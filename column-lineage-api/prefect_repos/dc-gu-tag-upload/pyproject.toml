@@ -1,0 +1,52 @@
+[project]
+name = "dc-gu-tag-upload"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3>=1.35.33",
+    "cloudpickle==3.0.0",
+    "numpy<2",
+    "openpyxl>=3.1.5",
+    "pandas<2",
+    "pydantic<2",
+    "snowflake-sqlalchemy>=1.6.1",
+    "sqlalchemy<2",
+    "xlsxwriter>=3.2.0",
+]
+
+[project.optional-dependencies]
+linters = [
+    "ruff>=0.6.9",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "common-tasks>=0.16.3",
+    "prefect==0.15.13",
+]
+
+[tool.uv.sources]
+common-tasks = { git = "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/common-prefect.git", branch = "master" }
+
+
+[tool.ruff]
+exclude = [".git", ".idea", ".vscode", "venv", ".venv", ".mypy_cache", ".pytest_cache", ".ruff", "site-packages", "tests", "scripts"]
+preview = false
+
+[tool.ruff.lint]
+select = ["I", "F", "ASYNC", "B", "C4", "T10", "FA", "ICN", "LOG", "SIM", "ERA", "PD", "PL", "NPY", "RUF", "TCH"]
+ignore = ["F401", "F403", "PLR0913", "FA100", "FA102", "PLR", "PLC0415", "RUF012", "PD901"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["I"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Add quotes around type annotations, if doing so would allow
+# an import to be moved into a type-checking block.
+quote-annotations = true
+runtime-evaluated-base-classes = ["pydantic"]
+
+strict = false
+

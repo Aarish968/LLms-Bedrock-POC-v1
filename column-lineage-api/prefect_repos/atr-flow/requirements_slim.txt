@@ -1,0 +1,8 @@
+prefect==0.15.3
+awswrangler
+boto3
+pandas
+xlsxwriter
+pandas
+cloudpickle==1.6.0
+sqlalchemy>=1.4,<2.0
