@@ -287,37 +287,14 @@ const JobsDashboard: React.FC<JobsDashboardProps> = ({ onNewAnalysis }) => {
                       )}
                     </TableCell>
                     <TableCell align="right">
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <Tooltip title="View Job Data">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleViewJobData(job)}
-                          >
-                            <Visibility />
-                          </IconButton>
-                        </Tooltip>
-                        
-                        {/* Work/Results icon commented out - blue briefcase icon
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                         {job.status === 'COMPLETED' && (
-                          <Tooltip title="View Results">
+                          <Tooltip title="View Job Data">
                             <IconButton
                               size="small"
-                              onClick={() => handleViewResults(job.job_id)}
-                              color="primary"
+                              onClick={() => handleViewJobData(job)}
                             >
-                              <Work />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        */}
-                        
-                        {(job.status === 'PENDING' || job.status === 'RUNNING') && (
-                          <Tooltip title="Cancel Job">
-                            <IconButton
-                              size="small"
-                              color="error"
-                            >
-                              <Cancel />
+                              <Visibility />
                             </IconButton>
                           </Tooltip>
                         )}

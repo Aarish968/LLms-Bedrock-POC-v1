@@ -36,6 +36,7 @@ import {
   CheckCircle,
   Schedule,
   Error as ErrorIcon,
+  ContentCopy,
 } from '@mui/icons-material';
 import { usePrefectAnalysis } from '../../hooks/usePrefectAnalysis';
 import { PrefectAnalysisService } from '../../api/prefectAnalysisService';
@@ -65,6 +66,8 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
   const [jobResults, setJobResults] = useState<PrefectAnalysisResults | null>(null);
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [selectedJobForData, setSelectedJobForData] = useState<PrefectAnalysisJob | null>(null);
+  const [showJobData, setShowJobData] = useState(false);
 
   const getStatusColor = (status: PrefectAnalysisStatus) => {
     switch (status) {
@@ -152,23 +155,42 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
       return;
     }
 
-    setLoadingResults(true);
-    setResultsDialogOpen(true);
-
-    try {
-      const results = await PrefectAnalysisService.getResults(job.job_id);
-      setJobResults(results);
-    } catch (err: any) {
-      setJobResults(null);
-      console.error('Failed to load results:', err);
-    } finally {
-      setLoadingResults(false);
-    }
+    // Show job data dialog instead of results
+    setSelectedJobForData(job);
+    setShowJobData(true);
   };
 
-  const handleCloseResultsDialog = () => {
-    setResultsDialogOpen(false);
-    setJobResults(null);
+  const handleCloseJobData = () => {
+    setShowJobData(false);
+    setSelectedJobForData(null);
+  };
+
+  const getJobDataAsJson = (job: PrefectAnalysisJob) => {
+    return {
+      job_id: job.job_id,
+      status: job.status,
+      message: job.message,
+      started_at: job.started_at,
+      completed_at: job.completed_at || null,
+      sf_environment: job.sf_environment,
+      max_workers: job.max_workers,
+      target_directory: job.target_directory,
+      total_repos_found: job.total_repos_found,
+      repos_cloned: job.repos_cloned,
+      total_references: job.total_references,
+      unique_tables: job.unique_tables,
+      unique_repos: job.unique_repos,
+      output_file: job.output_file || null,
+      error_message: job.error_message || null,
+      request_params: job.request_params || {},
+    };
+  };
+
+  const copyToClipboard = () => {
+    if (selectedJobForData) {
+      const jsonData = JSON.stringify(getJobDataAsJson(selectedJobForData), null, 2);
+      navigator.clipboard.writeText(jsonData);
+    }
   };
 
   const formatFileSize = (bytes: number) => {
@@ -258,7 +280,7 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
               <TableCell>Progress</TableCell>
               <TableCell>References</TableCell>
               <TableCell>Started</TableCell>
-              <TableCell>Actions</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -341,42 +363,30 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
                       </Box>
                     </Tooltip>
                   </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <TableCell align="right">
+                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                       {job.status === PrefectAnalysisStatus.COMPLETED && (
-                        <Tooltip title="View Results">
-                          <IconButton 
-                            onClick={() => handleViewResults(job)} 
-                            size="small"
-                            color="primary"
-                          >
-                            <Visibility />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {job.status === PrefectAnalysisStatus.COMPLETED && job.output_file && (
-                        <Tooltip title="Download results CSV">
-                          <IconButton 
-                            onClick={() => handleDownload(job.job_id)} 
-                            size="small"
-                            color="primary"
-                          >
-                            <Download />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {(job.status === PrefectAnalysisStatus.PENDING ||
-                        job.status === PrefectAnalysisStatus.CLONING ||
-                        job.status === PrefectAnalysisStatus.ANALYZING) && (
-                        <Tooltip title="Cancel job">
-                          <IconButton 
-                            onClick={() => handleCancel(job.job_id)} 
-                            size="small"
-                            color="error"
-                          >
-                            <Cancel />
-                          </IconButton>
-                        </Tooltip>
+                        <>
+                          <Tooltip title="View Job Data">
+                            <IconButton 
+                              onClick={() => handleViewResults(job)} 
+                              size="small"
+                            >
+                              <Visibility />
+                            </IconButton>
+                          </Tooltip>
+                          {job.output_file && (
+                            <Tooltip title="Download results CSV">
+                              <IconButton 
+                                onClick={() => handleDownload(job.job_id)} 
+                                size="small"
+                                color="primary"
+                              >
+                                <Download />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </>
                       )}
                     </Box>
                   </TableCell>
@@ -400,97 +410,47 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
         </Box>
       )}
 
-      {/* Results Dialog */}
+      {/* Job Data Dialog */}
       <Dialog
-        open={resultsDialogOpen}
-        onClose={handleCloseResultsDialog}
+        open={showJobData}
+        onClose={handleCloseJobData}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle>
-          <Typography variant="h6">
-            Prefect Analysis Results
-          </Typography>
+          Job Data - {selectedJobForData?.job_id.slice(0, 8)}...
         </DialogTitle>
-        
         <DialogContent>
-          {loadingResults ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress />
-            </Box>
-          ) : jobResults ? (
-            <Box sx={{ py: 1 }}>
-              <Typography variant="body1" gutterBottom>
-                <strong>Job ID:</strong> {jobResults.job_id}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Status:</strong>{' '}
-                <Chip
-                  label={jobResults.status.toUpperCase()}
-                  color="success"
-                  size="small"
-                />
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Total References:</strong> {jobResults.total_references.toLocaleString()}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Unique Tables:</strong> {jobResults.unique_tables}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Unique Repos:</strong> {jobResults.unique_repos}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Unique Functions:</strong> {jobResults.unique_functions}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Output File:</strong> {jobResults.output_file}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>File Size:</strong> {formatFileSize(jobResults.file_size)}
-              </Typography>
-              <Typography variant="body1" gutterBottom>
-                <strong>Created:</strong> {new Date(jobResults.created_at).toLocaleString()}
-              </Typography>
-              
-              {jobResults.sample_references && jobResults.sample_references.length > 0 && (
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Sample References:
-                  </Typography>
-                  {jobResults.sample_references.slice(0, 5).map((ref, index) => (
-                    <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
-                      <Typography variant="body2">
-                        <strong>{ref.table_name}.{ref.column_name}</strong>
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Repo: {ref.repo_name} • Function: {ref.function_name}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          ) : (
-            <Alert severity="error">
-              Failed to load analysis results.
-            </Alert>
-          )}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 2,
+              backgroundColor: 'grey.50',
+              border: '1px solid',
+              borderColor: 'grey.300',
+              borderRadius: 1,
+              fontFamily: 'monospace',
+              fontSize: '0.875rem',
+              overflow: 'auto',
+              maxHeight: '400px'
+            }}
+          >
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+              {selectedJobForData ? JSON.stringify(getJobDataAsJson(selectedJobForData), null, 2) : ''}
+            </pre>
+          </Paper>
         </DialogContent>
-        
         <DialogActions>
-          <Button onClick={handleCloseResultsDialog}>
+          <Button
+            startIcon={<ContentCopy />}
+            onClick={copyToClipboard}
+            variant="outlined"
+          >
+            Copy JSON
+          </Button>
+          <Button onClick={handleCloseJobData}>
             Close
           </Button>
-          {jobResults && jobResults.output_file && (
-            <Button 
-              variant="contained" 
-              onClick={() => handleDownload(jobResults.job_id)}
-              startIcon={<Download />}
-            >
-              Download CSV
-            </Button>
-          )}
         </DialogActions>
       </Dialog>
     </Box>

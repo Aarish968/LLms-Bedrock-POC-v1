@@ -270,7 +270,7 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAn
                     <TableCell align="right">
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
                         {job.status === AnalysisStatus.COMPLETED && (
-                          <Tooltip title="View Results">
+                          <Tooltip title="View Job Data">
                             <IconButton
                               size="small"
                               onClick={() => handleViewResults(job)}
@@ -279,20 +279,6 @@ const RepositoryAnalysisJobs: React.FC<RepositoryAnalysisJobsProps> = ({ onNewAn
                             </IconButton>
                           </Tooltip>
                         )}
-                        
-                        {/* {(job.status === AnalysisStatus.PENDING ||
-                          job.status === AnalysisStatus.CLONING ||
-                          job.status === AnalysisStatus.RUNNING) && (
-                          <Tooltip title="Cancel Job">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleCancelJob(job.job_id)}
-                              color="error"
-                            >
-                              <Cancel />
-                            </IconButton>
-                          </Tooltip>
-                        )} */}
                       </Box>
                     </TableCell>
                   </TableRow>
