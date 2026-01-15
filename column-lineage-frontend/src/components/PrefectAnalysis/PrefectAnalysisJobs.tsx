@@ -3,7 +3,7 @@
  * Displays list of Prefect analysis jobs with smart polling
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Paper,
@@ -21,6 +21,10 @@ import {
   Tooltip,
   LinearProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { 
   Download, 
@@ -29,13 +33,16 @@ import {
   AccessTime,
   Visibility,
   VisibilityOff,
+  CheckCircle,
+  Schedule,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { usePrefectAnalysis } from '../../hooks/usePrefectAnalysis';
 import { PrefectAnalysisService } from '../../api/prefectAnalysisService';
 import { 
   PrefectAnalysisStatus, 
   PrefectAnalysisJob,
-  getEstimatedCompletionTime,
+  PrefectAnalysisResults,
   getPollingInterval,
 } from '../../types/prefectAnalysis';
 
@@ -55,8 +62,14 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
     cancelJob 
   } = usePrefectAnalysis();
 
+  const [jobResults, setJobResults] = useState<PrefectAnalysisResults | null>(null);
+  const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
+  const [loadingResults, setLoadingResults] = useState(false);
+
   const getStatusColor = (status: PrefectAnalysisStatus) => {
     switch (status) {
+      case PrefectAnalysisStatus.PENDING:
+        return 'warning'; // Orange color for PENDING
       case PrefectAnalysisStatus.COMPLETED:
         return 'success';
       case PrefectAnalysisStatus.FAILED:
@@ -66,34 +79,29 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
       case PrefectAnalysisStatus.CLONING:
         return 'info';
       case PrefectAnalysisStatus.ANALYZING:
-        return 'warning';
+        return 'info';
       default:
         return 'primary';
     }
   };
 
-  const getStatusIcon = (job: PrefectAnalysisJob) => {
-    const isRunning = [
-      PrefectAnalysisStatus.PENDING,
-      PrefectAnalysisStatus.CLONING,
-      PrefectAnalysisStatus.ANALYZING,
-    ].includes(job.status);
-
-    if (!isRunning) return null;
-
-    const skipDiscovery = job.request_params?.skip_discovery || false;
-    const estimate = getEstimatedCompletionTime(job.status, job.started_at, skipDiscovery);
-    
-    return (
-      <Tooltip title={estimate.message}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <CircularProgress size={16} />
-          <Typography variant="caption" color="text.secondary">
-            ~{estimate.minutes}m
-          </Typography>
-        </Box>
-      </Tooltip>
-    );
+  const getStatusIcon = (status: PrefectAnalysisStatus) => {
+    switch (status) {
+      case PrefectAnalysisStatus.PENDING:
+        return <Schedule />;
+      case PrefectAnalysisStatus.CLONING:
+        return <CircularProgress size={16} />;
+      case PrefectAnalysisStatus.ANALYZING:
+        return <CircularProgress size={16} />;
+      case PrefectAnalysisStatus.COMPLETED:
+        return <CheckCircle />;
+      case PrefectAnalysisStatus.FAILED:
+        return <ErrorIcon />;
+      case PrefectAnalysisStatus.CANCELLED:
+        return <Cancel />;
+      default:
+        return undefined;
+    }
   };
 
   const getProgressInfo = (job: PrefectAnalysisJob) => {
@@ -137,6 +145,37 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
         console.error('Cancel failed:', err);
       }
     }
+  };
+
+  const handleViewResults = async (job: PrefectAnalysisJob) => {
+    if (job.status !== PrefectAnalysisStatus.COMPLETED) {
+      return;
+    }
+
+    setLoadingResults(true);
+    setResultsDialogOpen(true);
+
+    try {
+      const results = await PrefectAnalysisService.getResults(job.job_id);
+      setJobResults(results);
+    } catch (err: any) {
+      setJobResults(null);
+      console.error('Failed to load results:', err);
+    } finally {
+      setLoadingResults(false);
+    }
+  };
+
+  const handleCloseResultsDialog = () => {
+    setResultsDialogOpen(false);
+    setJobResults(null);
+  };
+
+  const formatFileSize = (bytes: number) => {
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    if (bytes === 0) return '0 Bytes';
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   };
 
   const getPollingInfo = () => {
@@ -257,14 +296,12 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip 
-                        label={job.status} 
-                        color={getStatusColor(job.status)} 
-                        size="small" 
-                      />
-                      {getStatusIcon(job)}
-                    </Box>
+                    <Chip 
+                      {...(getStatusIcon(job.status) && { icon: getStatusIcon(job.status) })}
+                      label={job.status} 
+                      color={getStatusColor(job.status)} 
+                      size="small"
+                    />
                   </TableCell>
                   <TableCell>
                     <Chip label={job.sf_environment} size="small" variant="outlined" />
@@ -306,6 +343,17 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
                   </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      {job.status === PrefectAnalysisStatus.COMPLETED && (
+                        <Tooltip title="View Results">
+                          <IconButton 
+                            onClick={() => handleViewResults(job)} 
+                            size="small"
+                            color="primary"
+                          >
+                            <Visibility />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {job.status === PrefectAnalysisStatus.COMPLETED && job.output_file && (
                         <Tooltip title="Download results CSV">
                           <IconButton 
@@ -351,6 +399,100 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
           )}
         </Box>
       )}
+
+      {/* Results Dialog */}
+      <Dialog
+        open={resultsDialogOpen}
+        onClose={handleCloseResultsDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Typography variant="h6">
+            Prefect Analysis Results
+          </Typography>
+        </DialogTitle>
+        
+        <DialogContent>
+          {loadingResults ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : jobResults ? (
+            <Box sx={{ py: 1 }}>
+              <Typography variant="body1" gutterBottom>
+                <strong>Job ID:</strong> {jobResults.job_id}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Status:</strong>{' '}
+                <Chip
+                  label={jobResults.status.toUpperCase()}
+                  color="success"
+                  size="small"
+                />
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Total References:</strong> {jobResults.total_references.toLocaleString()}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Unique Tables:</strong> {jobResults.unique_tables}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Unique Repos:</strong> {jobResults.unique_repos}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Unique Functions:</strong> {jobResults.unique_functions}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Output File:</strong> {jobResults.output_file}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>File Size:</strong> {formatFileSize(jobResults.file_size)}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Created:</strong> {new Date(jobResults.created_at).toLocaleString()}
+              </Typography>
+              
+              {jobResults.sample_references && jobResults.sample_references.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Sample References:
+                  </Typography>
+                  {jobResults.sample_references.slice(0, 5).map((ref, index) => (
+                    <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                      <Typography variant="body2">
+                        <strong>{ref.table_name}.{ref.column_name}</strong>
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Repo: {ref.repo_name} • Function: {ref.function_name}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <Alert severity="error">
+              Failed to load analysis results.
+            </Alert>
+          )}
+        </DialogContent>
+        
+        <DialogActions>
+          <Button onClick={handleCloseResultsDialog}>
+            Close
+          </Button>
+          {jobResults && jobResults.output_file && (
+            <Button 
+              variant="contained" 
+              onClick={() => handleDownload(jobResults.job_id)}
+              startIcon={<Download />}
+            >
+              Download CSV
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

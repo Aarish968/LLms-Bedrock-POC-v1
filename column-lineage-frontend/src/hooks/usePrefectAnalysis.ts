@@ -8,11 +8,22 @@ import { PrefectAnalysisService } from '../api/prefectAnalysisService';
 import {
   PrefectAnalysisJob,
   PrefectAnalysisStatus,
+  PrefectAnalysisRequest,
+  PrefectAnalysisResponse,
   getPollingInterval,
 } from '../types/prefectAnalysis';
 
+// Global state to share between hook instances
+let globalJobs: PrefectAnalysisJob[] = [];
+let globalJobsListeners: Set<(jobs: PrefectAnalysisJob[]) => void> = new Set();
+
+const notifyJobsListeners = (jobs: PrefectAnalysisJob[]) => {
+  globalJobs = jobs;
+  globalJobsListeners.forEach(listener => listener(jobs));
+};
+
 export const usePrefectAnalysis = () => {
-  const [jobs, setJobs] = useState<PrefectAnalysisJob[]>([]);
+  const [jobs, setJobs] = useState<PrefectAnalysisJob[]>(globalJobs);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasRunningJob, setHasRunningJob] = useState(false);
@@ -21,6 +32,19 @@ export const usePrefectAnalysis = () => {
   // Track if tab is visible using Page Visibility API
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Subscribe to global jobs changes
+  useEffect(() => {
+    const listener = (newJobs: PrefectAnalysisJob[]) => {
+      setJobs(newJobs);
+    };
+    
+    globalJobsListeners.add(listener);
+    
+    return () => {
+      globalJobsListeners.delete(listener);
+    };
+  }, []);
 
   // Handle visibility change
   useEffect(() => {
@@ -42,7 +66,7 @@ export const usePrefectAnalysis = () => {
       }
       
       const fetchedJobs = await PrefectAnalysisService.listJobs(50, 0);
-      setJobs(fetchedJobs);
+      notifyJobsListeners(fetchedJobs);
       setLastUpdated(new Date());
       
       // Check if any job is running
@@ -121,9 +145,77 @@ export const usePrefectAnalysis = () => {
     fetchJobs();
   }, [fetchJobs]);
 
+  // Start analysis
+  const startAnalysis = useCallback(async (request?: PrefectAnalysisRequest): Promise<PrefectAnalysisResponse | null> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const defaultRequest: PrefectAnalysisRequest = {
+        sf_environment: 'prod',
+        max_workers: 4,
+        target_directory: 'prefect_repos',
+        skip_discovery: false,
+        skip_naming_check: false,
+        clone_all_repos: false,
+        async_processing: true,
+      };
+
+      const response = await PrefectAnalysisService.startAnalysis(request || defaultRequest);
+
+      // Immediately add the new job to global state for instant UI feedback
+      const newJob: PrefectAnalysisJob = {
+        job_id: response.job_id,
+        status: response.status,
+        message: response.message,
+        started_at: response.started_at,
+        sf_environment: defaultRequest.sf_environment || 'prod',
+        max_workers: defaultRequest.max_workers || 4,
+        target_directory: defaultRequest.target_directory || 'prefect_repos',
+        total_repos_found: 0,
+        repos_cloned: 0,
+        total_references: 0,
+        unique_tables: 0,
+        unique_repos: 0,
+        request_params: request || defaultRequest,
+      };
+
+      const updatedJobs = [newJob, ...globalJobs];
+      notifyJobsListeners(updatedJobs);
+      setHasRunningJob(true);
+      
+      // Force a refresh after a short delay to ensure consistency
+      setTimeout(() => {
+        fetchJobs(false);
+      }, 1000);
+      
+      return response;
+
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start analysis';
+      setError(errorMessage);
+      console.error('Failed to start Prefect analysis:', err);
+      return null;
+
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchJobs]);
+
   // Add job to state (when new job is created)
   const addJobToState = useCallback((job: PrefectAnalysisJob) => {
-    setJobs(prevJobs => [job, ...prevJobs]);
+    // Check if job already exists to avoid duplicates
+    const existingJobIndex = globalJobs.findIndex(existingJob => existingJob.job_id === job.job_id);
+    let updatedJobs: PrefectAnalysisJob[];
+    
+    if (existingJobIndex >= 0) {
+      updatedJobs = [...globalJobs];
+      updatedJobs[existingJobIndex] = job;
+    } else {
+      updatedJobs = [job, ...globalJobs];
+    }
+    
+    notifyJobsListeners(updatedJobs);
     setHasRunningJob(true);
   }, []);
 
@@ -151,6 +243,7 @@ export const usePrefectAnalysis = () => {
     lastUpdated,
     isTabVisible,
     fetchJobs,
+    startAnalysis,
     addJobToState,
     cancelJob,
     refresh,

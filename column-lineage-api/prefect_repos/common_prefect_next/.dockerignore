@@ -1,0 +1,14 @@
+.claude
+.dockerignore
+.git
+.gitattributes
+.gitignore
+.idea
+.pytest_cache
+.python-version
+.ruff_cache
+.venv
+deployment
+dist
+tests
+uv.lock

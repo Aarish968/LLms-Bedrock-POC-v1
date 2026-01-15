@@ -1,7 +1,7 @@
 /**
  * Prefect Analysis Dialog Component
- * Dialog for starting Prefect repository analysis with debug info
- * Matches the UI/UX of LineageAnalysisDialog
+ * Dialog for starting and monitoring Prefect repository analysis
+ * Matches the UI/UX of other analysis dialogs
  */
 
 import React, { useState } from 'react';
@@ -14,74 +14,95 @@ import {
   Box,
   Typography,
   Chip,
-  Paper,
   Alert,
 } from '@mui/material';
-import { PlayArrow } from '@mui/icons-material';
+import {
+  PlayArrow,
+  Refresh,
+} from '@mui/icons-material';
+
 import { PrefectAnalysisService } from '../../api/prefectAnalysisService';
-import { PrefectAnalysisRequest, PrefectAnalysisResponse } from '../../types/prefectAnalysis';
+import usePrefectAnalysis from '../../hooks/usePrefectAnalysis';
+import {
+  PrefectAnalysisResponse,
+  PrefectAnalysisJob,
+  PrefectAnalysisStatus,
+  PrefectAnalysisRequest,
+} from '../../types/prefectAnalysis';
+
+// Debug Info Component
+const DebugInfo: React.FC<{
+  currentJobId: string | null;
+  jobStatus: PrefectAnalysisJob | null;
+  isAnalysisRunning: boolean;
+  isJobRunning: boolean;
+  isJobCompleted: boolean;
+}> = ({ currentJobId, jobStatus, isAnalysisRunning, isJobRunning, isJobCompleted }) => {
+  return (
+    <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+        Debug Info
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        <Chip
+          label={`Job ID: ${currentJobId || 'null'}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+        <Chip
+          label={`Analysis Running: ${isAnalysisRunning}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+        <Chip
+          label={`Job Running: ${isJobRunning}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+        <Chip
+          label={`Job Completed: ${isJobCompleted}`}
+          size="small"
+          variant="outlined"
+          sx={{ bgcolor: 'white' }}
+        />
+      </Box>
+    </Box>
+  );
+};
 
 interface PrefectAnalysisDialogProps {
   open: boolean;
   onClose: () => void;
-  onAnalysisStarted: (response: PrefectAnalysisResponse) => void;
+  onAnalysisStarted?: (response: PrefectAnalysisResponse) => void;
 }
-
-// Debug Info Component - Matches LineageAnalysisDialog style
-const DebugInfo: React.FC<{
-  currentJobId: string | null;
-  isAnalysisRunning: boolean;
-  isJobRunning: boolean;
-  isJobCompleted: boolean;
-}> = ({ currentJobId, isAnalysisRunning, isJobRunning, isJobCompleted }) => {
-  return (
-    <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
-      <Typography variant="h6" gutterBottom>
-        Debug Info
-      </Typography>
-      
-      <Box display="flex" flexWrap="wrap" gap={1}>
-        <Chip 
-          label={`Job ID: ${currentJobId || 'null'}`} 
-          color={currentJobId ? 'primary' : 'default'}
-          size="small"
-        />
-        <Chip 
-          label={`Analysis Running: ${isAnalysisRunning}`} 
-          color={isAnalysisRunning ? 'warning' : 'default'}
-          size="small"
-        />
-        <Chip 
-          label={`Job Running: ${isJobRunning}`} 
-          color={isJobRunning ? 'info' : 'default'}
-          size="small"
-        />
-        <Chip 
-          label={`Job Completed: ${isJobCompleted}`} 
-          color={isJobCompleted ? 'success' : 'default'}
-          size="small"
-        />
-      </Box>
-    </Paper>
-  );
-};
 
 export const PrefectAnalysisDialog: React.FC<PrefectAnalysisDialogProps> = ({
   open,
   onClose,
   onAnalysisStarted,
 }) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isRedirecting, setIsRedirecting] = useState(false);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<PrefectAnalysisJob | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  
+  const { hasRunningJob, startAnalysis } = usePrefectAnalysis();
+
+  // Derived states
+  const isAnalysisRunning = isStarting;
+  const isJobRunning = jobStatus?.status === PrefectAnalysisStatus.PENDING || 
+                      jobStatus?.status === PrefectAnalysisStatus.CLONING || 
+                      jobStatus?.status === PrefectAnalysisStatus.ANALYZING;
+  const isJobCompleted = jobStatus?.status === PrefectAnalysisStatus.COMPLETED;
+  const canStartNewAnalysis = !hasRunningJob && !isJobRunning;
 
   const handleStartAnalysis = async () => {
+    setIsStarting(true);
+
     try {
-      setLoading(true);
-      setError(null);
-      
-      // Use default configuration
       const request: PrefectAnalysisRequest = {
         sf_environment: 'prod',
         max_workers: 4,
@@ -91,43 +112,98 @@ export const PrefectAnalysisDialog: React.FC<PrefectAnalysisDialogProps> = ({
         clone_all_repos: false,
         async_processing: true,
       };
+
+      // Use hook's startAnalysis method which handles immediate state update
+      const response = await startAnalysis(request);
       
-      const response = await PrefectAnalysisService.startAnalysis(request);
+      if (!response) {
+        throw new Error('Failed to start Prefect analysis');
+      }
+
       setCurrentJobId(response.job_id);
-      onAnalysisStarted(response);
+      setJobStatus({
+        job_id: response.job_id,
+        status: response.status,
+        message: response.message,
+        started_at: response.started_at,
+        sf_environment: 'prod',
+        max_workers: 4,
+        target_directory: 'prefect_repos',
+        total_repos_found: 0,
+        repos_cloned: 0,
+        total_references: 0,
+        unique_tables: 0,
+        unique_repos: 0,
+        request_params: request,
+      });
       
+      // Notify parent component immediately for instant redirect
+      if (onAnalysisStarted) {
+        onAnalysisStarted(response);
+      }
+
       // Show redirect message
       setIsRedirecting(true);
 
-      // Auto-close dialog after 2 seconds
+      // Start polling for job status
+      pollJobStatus(response.job_id);
+
+      // Auto-close dialog after 1 second for faster redirect
       setTimeout(() => {
-        setIsRedirecting(false);
-        setCurrentJobId(null);
-        setLoading(false);
-        onClose();
-      }, 2000);
+        handleClose();
+      }, 1000);
+
     } catch (err: any) {
-      setError(err.message || 'Failed to start analysis');
-      setLoading(false);
+      // Handle error silently or show minimal error
+      console.error('Failed to start Prefect analysis:', err);
+    } finally {
+      setIsStarting(false);
     }
+  };
+
+  const pollJobStatus = async (jobId: string) => {
+    try {
+      const status = await PrefectAnalysisService.getJobStatus(jobId);
+      setJobStatus(status);
+
+      // Continue polling if job is still running
+      if (status.status === PrefectAnalysisStatus.PENDING || 
+          status.status === PrefectAnalysisStatus.CLONING || 
+          status.status === PrefectAnalysisStatus.ANALYZING) {
+        setTimeout(() => pollJobStatus(jobId), 2000);
+      }
+    } catch (err) {
+      // Continue polling even if there's an error
+      setTimeout(() => pollJobStatus(jobId), 5000);
+    }
+  };
+
+  const resetWorkflow = () => {
+    setCurrentJobId(null);
+    setJobStatus(null);
+    setIsRedirecting(false);
   };
 
   const handleClose = () => {
-    if (!loading) {
-      setError(null);
-      setIsRedirecting(false);
-      setCurrentJobId(null);
-      onClose();
+    // Only allow closing if no job is running
+    if (isJobRunning) {
+      return;
     }
+    resetWorkflow();
+    onClose();
+  };
+
+  const handleNewAnalysis = () => {
+    resetWorkflow();
   };
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={handleClose} 
-      maxWidth="md" 
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
       fullWidth
-      disableEscapeKeyDown={loading}
+      disableEscapeKeyDown={isJobRunning} // Prevent closing during job execution
     >
       <DialogTitle>
         <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -146,46 +222,64 @@ export const PrefectAnalysisDialog: React.FC<PrefectAnalysisDialogProps> = ({
         {/* Debug Info */}
         <DebugInfo
           currentJobId={currentJobId}
-          isAnalysisRunning={loading}
-          isJobRunning={loading}
-          isJobCompleted={isRedirecting}
+          jobStatus={jobStatus}
+          isAnalysisRunning={isAnalysisRunning}
+          isJobRunning={isJobRunning}
+          isJobCompleted={isJobCompleted}
         />
 
-        <Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Start Prefect repository analysis to discover and analyze table-column references.
-          </Typography>
-          
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          
-          {isRedirecting && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              Analysis started successfully! Redirecting to Prefect Analysis jobs section...
-            </Alert>
-          )}
-        </Box>
+        {!currentJobId ? (
+          // Configuration Phase
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Start Prefect repository analysis to discover and analyze table-column references.
+            </Typography>
+            
+            {!canStartNewAnalysis && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Another analysis is currently in progress. Please wait for it to complete.
+              </Alert>
+            )}
+          </Box>
+        ) : (
+          // Job Status Phase - Minimal display
+          <Box>
+            {isRedirecting && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Analysis started successfully! Redirecting to Prefect Analysis Jobs section...
+              </Alert>
+            )}
+          </Box>
+        )}
       </DialogContent>
 
       <DialogActions>
         <Button 
           onClick={handleClose}
-          disabled={loading}
+          disabled={isJobRunning}
         >
-          {loading ? 'Running...' : 'Close'}
+          {isJobRunning ? 'Running...' : 'Close'}
         </Button>
 
-        <Button
-          variant="contained"
-          startIcon={<PlayArrow />}
-          onClick={handleStartAnalysis}
-          disabled={loading || isRedirecting}
-        >
-          {loading ? 'Starting...' : 'Start Analysis'}
-        </Button>
+        {!currentJobId ? (
+          <Button
+            variant="contained"
+            startIcon={<PlayArrow />}
+            onClick={handleStartAnalysis}
+            disabled={!canStartNewAnalysis}
+          >
+            {isAnalysisRunning ? 'Starting...' : 'Start Analysis'}
+          </Button>
+        ) : (
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={handleNewAnalysis}
+            disabled={isJobRunning}
+          >
+            New Analysis
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
