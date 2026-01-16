@@ -20,13 +20,16 @@ import JobsDashboard from '../components/LineageAnalysis/JobsDashboard'
 import { RepositoryAnalysisDialog, RepositoryAnalysisJobs } from '../components/RepositoryAnalysis'
 import { SPAnalysisDialog, SPAnalysisJobs } from '../components/SPAnalysis'
 import { PrefectAnalysisDialog, PrefectAnalysisJobs } from '../components/PrefectAnalysis'
+import { ThoughtSpotAnalysisDialog, ThoughtSpotAnalysisJobs } from '../components/ThoughtSpotAnalysis'
 import useUserContext from '@/hooks/users/useUserContext'
 import useRepositoryAnalysis from '../hooks/useRepositoryAnalysis'
 import useSPAnalysis from '../hooks/useSPAnalysis'
 import usePrefectAnalysis from '../hooks/usePrefectAnalysis'
+import useThoughtSpotAnalysis from '../hooks/useThoughtSpotAnalysis'
 import { RepositoryAnalysisResponse, RepositoryAnalysisJob, AnalysisStatus } from '../types/repositoryAnalysis'
 import { SPAnalysisResponse } from '../types/spAnalysis'
 import { PrefectAnalysisResponse } from '../types/prefectAnalysis'
+import { TSAnalysisResponse } from '../types/thoughtspotAnalysis'
 
 const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
@@ -34,12 +37,14 @@ const DashboardPage = () => {
   const [repoAnalysisDialogOpen, setRepoAnalysisDialogOpen] = useState(false)
   const [spAnalysisDialogOpen, setSPAnalysisDialogOpen] = useState(false)
   const [prefectAnalysisDialogOpen, setPrefectAnalysisDialogOpen] = useState(false)
+  const [thoughtspotAnalysisDialogOpen, setThoughtspotAnalysisDialogOpen] = useState(false)
   const [currentTab, setCurrentTab] = useState(0)
   const [analysisJobsSubTab, setAnalysisJobsSubTab] = useState(0)
   const user = useUserContext()
   const { hasRunningJob: hasRunningRepoJob, addJobToState } = useRepositoryAnalysis()
   const { hasRunningJob: hasRunningSPJob } = useSPAnalysis()
   const { hasRunningJob: hasRunningPrefectJob } = usePrefectAnalysis()
+  const { hasRunningJob: hasRunningThoughtSpotJob } = useThoughtSpotAnalysis()
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
@@ -109,6 +114,20 @@ const DashboardPage = () => {
     setPrefectAnalysisDialogOpen(false)
   }
 
+  const handleStartThoughtSpotAnalysis = () => {
+    if (hasRunningThoughtSpotJob) {
+      // Show warning but still allow opening dialog for better UX
+    }
+    setThoughtspotAnalysisDialogOpen(true)
+  }
+
+  const handleThoughtSpotAnalysisStarted = (_response: TSAnalysisResponse) => {
+    // Switch to Analysis Jobs tab and ThoughtSpot Analysis sub-tab when ThoughtSpot analysis starts
+    setCurrentTab(1)
+    setAnalysisJobsSubTab(4)
+    setThoughtspotAnalysisDialogOpen(false)
+  }
+
   const handleCloseAnalysisDialog = () => {
     setAnalysisDialogOpen(false)
   }
@@ -123,6 +142,10 @@ const DashboardPage = () => {
 
   const handleClosePrefectAnalysisDialog = () => {
     setPrefectAnalysisDialogOpen(false)
+  }
+
+  const handleCloseThoughtSpotAnalysisDialog = () => {
+    setThoughtspotAnalysisDialogOpen(false)
   }
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -298,6 +321,23 @@ const DashboardPage = () => {
                     Analyze Prefect flow repositories
                   </Typography>
                 </Box>
+
+                <Box sx={{ textAlign: 'center' }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<PlayArrow />}
+                    onClick={handleStartThoughtSpotAnalysis}
+                    disabled={hasRunningThoughtSpotJob}
+                    title={hasRunningThoughtSpotJob ? 'Please wait for current ThoughtSpot analysis to complete' : 'Start ThoughtSpot liveboard analysis'}
+                    sx={{ mb: 1 }}
+                  >
+                    Start ThoughtSpot Analysis
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Analyze ThoughtSpot liveboard relationships
+                  </Typography>
+                </Box>
               </Box>
             </Box>
           )}
@@ -327,6 +367,11 @@ const DashboardPage = () => {
                     label="Prefect Analysis Jobs" 
                     iconPosition="start"
                   />
+                  <Tab 
+                    icon={<Analytics />} 
+                    label="ThoughtSpot Analysis Jobs" 
+                    iconPosition="start"
+                  />
                 </Tabs>
               </Box>
 
@@ -352,6 +397,12 @@ const DashboardPage = () => {
               {analysisJobsSubTab === 3 && (
                 <PrefectAnalysisJobs 
                   onNewAnalysis={handleStartPrefectAnalysis}
+                />
+              )}
+
+              {analysisJobsSubTab === 4 && (
+                <ThoughtSpotAnalysisJobs 
+                  onNewAnalysis={handleStartThoughtSpotAnalysis}
                 />
               )}
             </Box>
@@ -385,6 +436,13 @@ const DashboardPage = () => {
         open={prefectAnalysisDialogOpen}
         onClose={handleClosePrefectAnalysisDialog}
         onAnalysisStarted={handlePrefectAnalysisStarted}
+      />
+
+      {/* ThoughtSpot Analysis Dialog */}
+      <ThoughtSpotAnalysisDialog
+        open={thoughtspotAnalysisDialogOpen}
+        onClose={handleCloseThoughtSpotAnalysisDialog}
+        onAnalysisStarted={handleThoughtSpotAnalysisStarted}
       />
     </Box>
   )

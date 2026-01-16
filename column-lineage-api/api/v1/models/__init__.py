@@ -3,6 +3,7 @@
 from .lineage import *
 from .repository_analysis import *
 from .sp_analysis import *
+from .thoughtspot_analysis import *
 
 __all__ = [
     # Lineage models
@@ -39,4 +40,15 @@ __all__ = [
     "SPResultsResponse",
     "ProcedureInfo",
     "ProcedureListResponse",
+    
+    # ThoughtSpot analysis models
+    "TSJobStatus",
+    "LiveboardInfo",
+    "TableLiveboardRelationship",
+    "TSAnalysisRequest",
+    "TSAnalysisResponse",
+    "TSAnalysisJob",
+    "TSResultsResponse",
+    "TableInfo",
+    "TableListResponse",
 ]

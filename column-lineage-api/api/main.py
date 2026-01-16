@@ -14,7 +14,7 @@ from api.core.config import get_settings
 from api.core.logging import setup_logging
 from api.dependencies.database import get_database_engine
 from api.health.healthcheck import router as health_router
-from api.v1.routers import lineage, repository_analysis, sp_analyzer_api, prefect_analysis
+from api.v1.routers import lineage, repository_analysis, sp_analyzer_api, prefect_analysis, thoughtspot_analysis
 
 # Setup structured logging
 setup_logging()
@@ -139,6 +139,11 @@ app.include_router(
     prefect_analysis.router,
     prefix=f"{settings.API_V1_PREFIX}/prefect-analysis",
     tags=["prefect-analysis"],
+)
+app.include_router(
+    thoughtspot_analysis.router,
+    prefix=f"{settings.API_V1_PREFIX}/thoughtspot-analysis",
+    tags=["thoughtspot-analysis"],
 )
 
 
