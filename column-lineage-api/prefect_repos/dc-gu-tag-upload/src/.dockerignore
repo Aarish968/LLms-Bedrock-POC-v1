@@ -1,8 +1,0 @@
-**/*.py[cod]
-**/.env
-*.egg
-*.egg-info/
-**/.venv
-**/__pycache__
-env
-venv

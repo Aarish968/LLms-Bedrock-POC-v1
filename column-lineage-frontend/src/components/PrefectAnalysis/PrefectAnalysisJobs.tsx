@@ -240,11 +240,7 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
           <Typography variant="h6">Prefect Analysis Jobs</Typography>
-          {lastUpdated && (
-            <Typography variant="caption" color="text.secondary">
-              Last updated: {lastUpdated.toLocaleTimeString()}
-            </Typography>
-          )}
+          
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Tooltip title="Refresh jobs list">
@@ -297,13 +293,7 @@ export const PrefectAnalysisJobs: React.FC<PrefectAnalysisJobsProps> = ({ onNewA
                     <Typography variant="body1" color="text.secondary" gutterBottom>
                       No Prefect analysis jobs found
                     </Typography>
-                    <Button 
-                      variant="outlined" 
-                      onClick={onNewAnalysis}
-                      sx={{ mt: 2 }}
-                    >
-                      Start Your First Analysis
-                    </Button>
+                    
                   </Box>
                 </TableCell>
               </TableRow>
