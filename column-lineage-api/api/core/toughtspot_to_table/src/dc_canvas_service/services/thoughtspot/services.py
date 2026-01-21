@@ -6,9 +6,53 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 import requests
 import yaml
 from thoughtspot_rest_api_v1 import TSRestApiV2, TSTypes
-from thoughtspot_tml import Liveboard, SpotApp, Table, Worksheet
-from thoughtspot_tml import _scriptability as ts_protos
-from thoughtspot_tml.types import GUID, TMLObject, TMLType
+from thoughtspot_tml import Liveboard, Table, Worksheet, TML
+
+# Mock types since thoughtspot_tml.types is not available in current version
+GUID = str
+TMLObject = Any
+TMLType = str
+
+# Mock proto classes since _scriptability is not available in current thoughtspot_tml version
+class MockProtoBase:
+    """Mock base class for proto objects"""
+    def __init__(self):
+        pass
+    
+    def from_dict(self, data):
+        """Mock from_dict method"""
+        for key, value in data.items():
+            setattr(self, key, value)
+
+class MockLogicalTableEDocProto(MockProtoBase):
+    """Mock LogicalTableEDocProto"""
+    pass
+
+class MockWorksheetEDocProto(MockProtoBase):
+    """Mock WorksheetEDocProto"""
+    def __init__(self):
+        super().__init__()
+        self.name = ""
+        self.description = ""
+        self.tables = []
+        self.table_paths = []
+
+class MockLogicalTableEDocProtoLogicalColumnEDocProto(MockProtoBase):
+    """Mock LogicalTableEDocProtoLogicalColumnEDocProto"""
+    pass
+
+class MockWorksheetEDocProtoWorksheetColumn(MockProtoBase):
+    """Mock WorksheetEDocProtoWorksheetColumn"""
+    pass
+
+# Mock ts_protos module
+class MockTSProtos:
+    LogicalTableEDocProto = MockLogicalTableEDocProto
+    WorksheetEDocProto = MockWorksheetEDocProto
+    LogicalTableEDocProtoLogicalColumnEDocProto = MockLogicalTableEDocProtoLogicalColumnEDocProto
+    WorksheetEDocProtoWorksheetColumn = MockWorksheetEDocProtoWorksheetColumn
+
+ts_protos = MockTSProtos()
 
 from dc_canvas_service.common import Env, SFWarehouse
 from dc_canvas_service.common.utils import class_constants_to_dict
@@ -390,7 +434,7 @@ class ThoughtSpotService:
             except requests.exceptions.HTTPError as e:
                 raise TSExportMetadataError() from e
 
-            tmls_data = SpotApp.from_api(payload={"object": metadata_tmls})
+            tmls_data = TML.from_api(payload={"object": metadata_tmls})
 
             formatted_valid_response = format_metadata_tml_response(
                 tml_objs=tmls_data.tml

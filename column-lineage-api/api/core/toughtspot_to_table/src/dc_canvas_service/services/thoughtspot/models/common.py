@@ -1,7 +1,9 @@
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel
-from thoughtspot_tml.types import TMLType
+
+# Mock TMLType since thoughtspot_tml.types is not available in current version
+TMLType = str
 
 from ..enums import TSActionContextE
 

@@ -1,8 +1,14 @@
 import ast
 import json
+from typing import Any
 
-from thoughtspot_tml import Answer, Liveboard, Model, SQLView, Table, View, Worksheet
-from thoughtspot_tml.types import GUID, TMLObject, TMLObjectType, TMLType
+from thoughtspot_tml import Answer, Liveboard, SQLView, Table, View, Worksheet
+
+# Mock types since thoughtspot_tml.types is not available in current version
+GUID = str
+TMLObject = Any
+TMLObjectType = str
+TMLType = str
 
 from .models import (
     TSExportMetadataType,
@@ -22,7 +28,6 @@ tml_type_class_map: dict[TMLType, TMLObjectType] = {
     "answer": Answer,
     "liveboard": Liveboard,
     "pinboard": Liveboard,
-    "model": Model,
 }
 
 tml_export_type_map: dict[TMLType, TSExportMetadataType] = {

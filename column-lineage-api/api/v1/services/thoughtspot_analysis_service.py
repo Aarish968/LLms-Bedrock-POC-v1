@@ -123,9 +123,11 @@ class ThoughtSpotAnalysisService:
             self.update_job_status(job_id, TSJobStatus.RUNNING)
             logger.info(f"Starting ThoughtSpot analysis for job {job_id}")
             
-            # Import ThoughtSpot analysis module
-            sys.path.insert(1, "./dc-canvas-service")
-            sys.path.insert(1, "./dc-canvas-service/src")
+            # Add the correct path to sys.path for dc_canvas_service imports
+            import os
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            src_path = os.path.join(current_dir, 'api', 'core', 'toughtspot_to_table', 'src')
+            sys.path.insert(0, src_path)
             
             from api.core.toughtspot_to_table.thoughtspot_to_table_analysis import (
                 run_csv_liveboard_analysis,
@@ -204,9 +206,11 @@ class ThoughtSpotAnalysisService:
     async def get_tables_list(self, sf_environment: str, include_views: bool = True) -> List[TableInfo]:
         """Get list of tables and views from Snowflake."""
         try:
-            # Import ThoughtSpot analysis module
-            sys.path.insert(1, "./dc-canvas-service")
-            sys.path.insert(1, "./dc-canvas-service/src")
+            # Add the correct path to sys.path for dc_canvas_service imports
+            import os
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            src_path = os.path.join(current_dir, 'api', 'core', 'toughtspot_to_table', 'src')
+            sys.path.insert(0, src_path)
             
             from api.core.toughtspot_to_table.thoughtspot_to_table_analysis import (
                 create_thoughtspot_csv_analysis_extension

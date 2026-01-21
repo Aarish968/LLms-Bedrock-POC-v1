@@ -16,11 +16,15 @@ import urllib3
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
-# Add both the dc-canvas-service directory and its src directory to path
-sys.path.insert(1,"./dc-canvas-service")
-sys.path.insert(1,"./dc-canvas-service/src")
-from src.dc_canvas_service.services.thoughtspot.services import ThoughtSpotService
-from src.dc_canvas_service.services.thoughtspot.exceptions import (
+# Add the correct path to sys.path for dc_canvas_service imports
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.join(current_dir, 'src')
+sys.path.insert(0, src_path)
+
+# Now import from dc_canvas_service (without 'src.' prefix)
+from dc_canvas_service.services.thoughtspot.services import ThoughtSpotService
+from dc_canvas_service.services.thoughtspot.exceptions import (
     TSSearchMetadataError,
     TSCredsNotFoundError,
     TSTokenFetchError
